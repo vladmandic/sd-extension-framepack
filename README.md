@@ -56,4 +56,5 @@ Clone repository into SD.Next `/extensions` folder
 
 - integrated UI progress bar
 - improve LoRA support
-- Full codebase integration
+- frame interpolation
+- full codebase integration
