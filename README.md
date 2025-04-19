@@ -27,6 +27,8 @@ Clone repository into SD.Next `/extensions` folder
 ## Differences
 
 - Implement both SD.Next **Balanced offloading** (native) and **lllyasviel offloading**  
+  Balanced offload will use more resources, but unless you have a low-end GPU, it should also be much faster  
+  especially when used together with quantization  
 - Add support for **LLM** and **DiT/Video** modules on-the-fly quantization **quantization**  
   Only available when using native offloading, configure as usual in *settings -> quantization*  
 - Configurable resolution, frame-rate, video compression (crf)  
