@@ -48,7 +48,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         text_encoder_2 = shared.sd_model.text_encoder_2
         tokenizer = shared.sd_model.tokenizer
         tokenizer_2 = shared.sd_model.tokenizer_2
-        vae = shared.sd_model.model.vae
+        vae = shared.sd_model.vae
         feature_extractor = shared.sd_model.feature_extractor
         image_encoder = shared.sd_model.image_processor
         transformer = shared.sd_model.transformer
