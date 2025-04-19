@@ -99,7 +99,7 @@ def process_start(input_image, prompt, negative_prompt, seed, resolution, durati
     input_image = prepare_image(input_image, resolution)
     w, h, _c = input_image.shape
     p = processing.StableDiffusionProcessingVideo(
-        sd_model=framepack_load.model,
+        sd_model=shared.sd_model,
         prompt=prompt,
         seed=seed,
         width=w,
