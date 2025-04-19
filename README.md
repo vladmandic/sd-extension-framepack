@@ -2,7 +2,7 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- *quantization support, new offloading, more configuration options*  
+- *quantization support, new offloading, more configuration options, cross-platform*  
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension, but will be fully > integrated into the main codebase in the future  
@@ -10,6 +10,19 @@ With some major differences and improvements:
 
 > [!IMPORTANT]
 > Video support requires `ffmpeg` to be installed and available in the `PATH`  
+
+## Install
+
+Exension repository URL: <https://github.com/vladmandic/sd-extension-framepack>
+
+### Via UI  
+
+Enter repository URL in *SD.Next -> Extensions -> Manual Install* and select *Install*  
+Extension will appear as a top-level tab after server restart  
+
+## Via CLI  
+
+Clone repository into SD.Next `/extensions` folder
 
 ## Differences
 
@@ -23,6 +36,7 @@ With some major differences and improvements:
 
 ### Internals  
 
+- Removed hardcoded device mappings
 - State management
 - Create actual model pipeline from individual components  
 - Add inference stats  
