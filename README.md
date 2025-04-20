@@ -2,7 +2,7 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- *quantization support, new offloading, more configuration options, cross-platform*  
+- *quantization support, new offloading, more configuration options, cross-platform, multiple video codecs*  
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension, but will be fully > integrated into the main codebase in the future  
@@ -31,7 +31,10 @@ Clone repository into SD.Next `/extensions` folder
   especially when used together with quantization  
 - Add support for **LLM** and **DiT/Video** modules on-the-fly quantization **quantization**  
   Only available when using native offloading, configure as usual in *settings -> quantization*  
-- Configurable resolution, frame-rate, video compression (crf)  
+- add support for post-load quantization such as **NNCF**  
+- Configurable resolution, frame-rate
+- Configurable video codec and codec options  
+  Includes both hardware-accelerated codecs (e.g. `hevc_nvenc`) and software codecs (e.g. `libx264`)
 - Expose advanced options: *recommended not to change*  
 - Model download & load on-demand  
 - Configurable torch cross-attention  
@@ -47,14 +50,15 @@ Clone repository into SD.Next `/extensions` folder
 
 ### Video saving
 
-- Video is encoded using `libx264` codec  
+- Video is encoded using selected codec and codec options    
 - Set path in *settings -> image paths -> video*  
 - If *settings -> image options -> keep incomplete images* is enabled, the video will be created even if interrupted  
 - Does not create intermediate video or image files  
 
 ## TODO
 
-- integrated UI progress bar
-- improve LoRA support
+- paste button
+- LoRA support
 - frame interpolation
+- frame upscaling
 - full codebase integration

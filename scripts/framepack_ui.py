@@ -7,7 +7,7 @@ import framepack_install
 import framepack_load
 import framepack_worker
 import framepack_hijack
-from modules import shared, processing, paths, script_callbacks, ui_sections, extra_networks, progress
+from modules import shared, processing, paths, script_callbacks, extra_networks, progress, ui_sections, ui_common, generation_parameters_copypaste
 
 
 tmp_dir = os.path.join(paths.data_path, 'tmp', 'framepack')
@@ -33,6 +33,32 @@ resolutions = [
     '864 x 448',
     '960 x 416',
 ]
+
+
+def get_codecs():
+    try:
+        import av
+    except Exception as e:
+        shared.log.error(f'av package: {e}')
+        return []
+    codecs = []
+    for codec in av.codecs_available:
+        try:
+            c = av.Codec(codec, mode='w')
+            if c.type == 'video' and c.is_encoder and len(c.video_formats) > 0:
+                if not any(c.name == ca.name for ca in codecs):
+                    codecs.append(c)
+        except Exception:
+            pass
+    hw_codecs = [c for c in codecs if (c.capabilities & 0x40000 > 0) or (c.capabilities & 0x80000 > 0)]
+    sw_codecs = [c for c in codecs if c not in hw_codecs]
+    shared.log.debug(f'Video codecs: hardware={len(hw_codecs)} software={len(sw_codecs)}')
+    # for c in hw_codecs:
+    #     shared.log.trace(f'codec={c.name} cname="{c.canonical_name}" decs="{c.long_name}" intra={c.intra_only} lossy={c.lossy} lossless={c.lossless} capabilities={c.capabilities} hw=True')
+    # for c in sw_codecs:
+    #     shared.log.trace(f'codec={c.name} cname="{c.canonical_name}" decs="{c.long_name}" intra={c.intra_only} lossy={c.lossy} lossless={c.lossless} capabilities={c.capabilities} hw=False')
+    return [c.name for c in hw_codecs + sw_codecs]
+
 
 def prepare_image(image, resolution):
     from diffusers_helper.utils import resize_and_center_crop
@@ -88,7 +114,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_crf, mp4_fps, mp4_codec, attention):
+def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, attention):
     if input_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
@@ -109,7 +135,7 @@ def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, r
         if seed is None or seed == '' or seed == -1:
             random.seed()
             seed = int(random.randrange(4294967294))
-        shared.log.info(f'FramePack start: {task_id} resolution="{resolution}" seed={seed} duration={duration} teacache={use_teacache} crf={mp4_crf} fps={mp4_fps}')
+        shared.log.info(f'FramePack start: {task_id} resolution="{resolution}" seed={seed} duration={duration} teacache={use_teacache} fps={mp4_fps} codec={mp4_codec} ext="{mp4_ext}" options="{mp4_opt}"')
         input_image = prepare_image(input_image, resolution)
         w, h, _c = input_image.shape
         p = processing.StableDiffusionProcessingVideo(
@@ -140,9 +166,10 @@ def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, r
             gpu_preserved,
             offload_native,
             use_teacache,
-            mp4_crf,
             mp4_fps,
             mp4_codec,
+            mp4_opt,
+            mp4_ext,
         )
 
         output_filename = None
@@ -181,10 +208,13 @@ def create_ui():
                 with gr.Row():
                     resolution = gr.Dropdown(label="Resolution", choices=resolutions, value='Auto', type='value', elem_id="framepack_resolution")
                     duration = gr.Slider(label="Video duration", minimum=1, maximum=120, value=4, step=0.1)
-                with gr.Accordion(label="Video", open=True):
-                    mp4_codec = gr.Dropdown(label="Codec", choices=['libx264 ', 'libx265', 'libaom-av1', 'libvpx-vp9'], value='libx264', type='value')
                     mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=24, step=1)
-                    mp4_crf = gr.Slider(label="CRF", minimum=0, maximum=64, value=16, step=1)
+                with gr.Accordion(label="Video codec", open=False):
+                    with gr.Row():
+                        mp4_codec = gr.Dropdown(label="Codec", choices=['libx264'], value='libx264', type='value')
+                        ui_common.create_refresh_button(mp4_codec, get_codecs)
+                        mp4_ext = gr.Textbox(label="Format", value='mp4', elem_id="framepack_mp4_ext")
+                        mp4_opt = gr.Textbox(label="Options", value='crf:16', elem_id="framepack_mp4_ext")
                 with gr.Accordion(label="Advanced", open=False):
                     seed = ui_sections.create_seed_inputs('control', reuse_visible=False, subseed_visible=False, accordion=False)[0]
                     latent_ws = gr.Slider(label="Latent window size", minimum=1, maximum=33, value=9, step=1)
@@ -200,6 +230,7 @@ def create_ui():
                     use_teacache = gr.Checkbox(label='Enable TeaCache', value=True)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
                     gpu_preserved = gr.Slider(label="Preserved memory", minimum=6, maximum=128, value=6, step=0.1)
+                override_settings = ui_common.create_override_inputs('framepack')
 
             with gr.Column():
                 with gr.Tabs():
@@ -216,9 +247,15 @@ def create_ui():
             generate.click(
                 fn=run_framepack,
                 _js="submit_framepack",
-                inputs=[task_id, input_image, prompt, negative, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_crf, mp4_fps, mp4_codec, attention],
+                inputs=[task_id, input_image, prompt, negative, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, attention],
                 outputs=outputs,
             )
+
+            paste_fields = [(prompt, "Prompt")]
+            generation_parameters_copypaste.add_paste_fields("video", None, paste_fields, override_settings)
+            bindings = generation_parameters_copypaste.ParamBinding(paste_button=paste, tabname="framepack", source_text_component=prompt, source_image_component=None)
+            generation_parameters_copypaste.register_paste_params_button(bindings)
+
 
     return [(ui, "FramePack", "framepack_tab")]
 

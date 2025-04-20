@@ -11,53 +11,37 @@ from modules import shared, errors ,devices, sd_models, timer, memstats
 stream = None # AsyncStream
 
 
-def save_video(pixels, codec: str = 'libx264', fps: float = 24, crf: int = 16):
+def save_video(pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext):
     if pixels is None:
         return
     t_save = time.time()
-    # from diffusers_helper import utils
-    # utils.save_bcthw_as_mp4(history_pixels, output_filename, fps=mp4_fps, crf=mp4_crf)
     try:
         n, _c, t, h, w = pixels.shape
         x = torch.clamp(pixels.float(), -1., 1.) * 127.5 + 127.5
         x = x.detach().cpu().to(torch.uint8)
         x = einops.rearrange(x, '(m n) c t h w -> t (m h) (n w) c', n=n)
         timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-
-        try:
-            codec = 'libx264'
-            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
-            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
-        except Exception as e:
-            shared.log.error(f'FramePack video: {e}')
-        try:
-            codec = 'libx265'
-            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
-            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
-        except Exception as e:
-            shared.log.error(f'FramePack video: {e}')
-        try:
-            codec = 'libaom-av1'
-            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
-            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
-        except Exception as e:
-            shared.log.error(f'FramePack video: {e}')
-        try:
-            codec = 'libvpx-vp9'
-            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
-            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
-        except Exception as e:
-            shared.log.error(f'FramePack video: {e}')
-
+        output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{mp4_codec}-f{t}.{mp4_ext}')
+        options = {}
+        for option in [option.strip() for option in mp4_opt.split(',')]:
+            if '=' in option:
+                key, value = option.split('=', 1)
+            elif ':' in option:
+                key, value = option.split(':', 1)
+            else:
+                continue
+            options[key.strip()] = value.strip()
+        torchvision.io.write_video(output_filename, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
         timer.process.add('save', time.time()-t_save)
-        shared.log.info(f'FramePack video: file="{output_filename}" codec={codec} frames={t} width={w} height={h} fps={fps} crf={crf}')
+        shared.log.info(f'FramePack video: file="{output_filename}" codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
         stream.output_queue.push(('file', output_filename))
     except Exception as e:
         shared.log.error(f'FramePack video: {e}')
+        errors.display(e, 'FramePack video')
 
 
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_crf, mp4_fps, mp4_codec):
+def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -282,12 +266,12 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             timer.process.add('vae', time.time()-t_vae)
 
             if is_last_section:
-                save_video(history_pixels, mp4_codec, mp4_fps, mp4_crf)
+                save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext)
                 break
     except AssertionError:
         shared.log.info('FramePack: interrupted')
         if shared.opts.keep_incomplete:
-            save_video(history_pixels, mp4_codec, mp4_fps, mp4_crf)
+            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext)
     except Exception as e:
         shared.log.error(f'FramePack: {e}')
         errors.display(e, 'FramePack')
