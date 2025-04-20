@@ -75,7 +75,7 @@ def prepare_image(image, resolution):
         best_h, best_w = map(int, resolution.split(' x '))
     image = resize_and_center_crop(image, target_width=best_w, target_height=best_h)
     h0, w0, _c = image.shape
-    shared.log.debug(f'FramePack: image="{h}x{w}" target="{h0}x{w0}"')
+    shared.log.debug(f'FramePack: input="{h}x{w}" resized="{h0}x{w0}"')
     return image
 
 
@@ -114,7 +114,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, attention):
+def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention):
     if input_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
@@ -170,6 +170,7 @@ def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, r
             mp4_codec,
             mp4_opt,
             mp4_ext,
+            mp4_interpolate,
         )
 
         output_filename = None
@@ -209,6 +210,7 @@ def create_ui():
                     resolution = gr.Dropdown(label="Resolution", choices=resolutions, value='Auto', type='value', elem_id="framepack_resolution")
                     duration = gr.Slider(label="Video duration", minimum=1, maximum=120, value=4, step=0.1)
                     mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=24, step=1)
+                    mp4_interpolate = gr.Slider(label="Interpolation", minimum=0, maximum=10, value=0, step=1)
                 with gr.Accordion(label="Video codec", open=False):
                     with gr.Row():
                         mp4_codec = gr.Dropdown(label="Codec", choices=['libx264'], value='libx264', type='value')
@@ -247,7 +249,7 @@ def create_ui():
             generate.click(
                 fn=run_framepack,
                 _js="submit_framepack",
-                inputs=[task_id, input_image, prompt, negative, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, attention],
+                inputs=[task_id, input_image, prompt, negative, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention],
                 outputs=outputs,
             )
 

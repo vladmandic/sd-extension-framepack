@@ -5,21 +5,28 @@ import torch
 import torchvision
 import numpy as np
 import einops
-from modules import shared, errors ,devices, sd_models, timer, memstats
+from modules import shared, errors ,devices, sd_models, timer, memstats, rife
 
 
 stream = None # AsyncStream
 
 
-def save_video(pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext):
+def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4_opt:str='', mp4_ext:str='mp4', mp4_interpolate:int=0):
     if pixels is None:
-        return
+        return 0
     t_save = time.time()
     try:
+        if mp4_interpolate > 0:
+            x = pixels.squeeze(0).permute(1, 0, 2, 3)
+            interpolated = rife.interpolate_nchw(x, count=mp4_interpolate+1)
+            pixels = torch.stack(interpolated, dim=0)
+            pixels = pixels.permute(1, 2, 0, 3, 4)
+
         n, _c, t, h, w = pixels.shape
         x = torch.clamp(pixels.float(), -1., 1.) * 127.5 + 127.5
         x = x.detach().cpu().to(torch.uint8)
         x = einops.rearrange(x, '(m n) c t h w -> t (m h) (n w) c', n=n)
+
         timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{mp4_codec}-f{t}.{mp4_ext}')
         options = {}
@@ -31,17 +38,20 @@ def save_video(pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext):
             else:
                 continue
             options[key.strip()] = value.strip()
+
         torchvision.io.write_video(output_filename, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
         timer.process.add('save', time.time()-t_save)
         shared.log.info(f'FramePack video: file="{output_filename}" codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
         stream.output_queue.push(('file', output_filename))
+        return t
     except Exception as e:
         shared.log.error(f'FramePack video: {e}')
         errors.display(e, 'FramePack video')
+        return 0
 
 
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext):
+def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -56,7 +66,8 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
     from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
 
     calculated_frames = 0
-    total_latent_sections = (total_second_length * mp4_fps) / (latent_window_size * 4)
+    calc_fps = mp4_fps / (mp4_interpolate+1) if mp4_interpolate > 0 else mp4_fps
+    total_latent_sections = (total_second_length * calc_fps) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
     shared.state.begin('Video')
     shared.state.job_count = 1
@@ -266,12 +277,12 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             timer.process.add('vae', time.time()-t_vae)
 
             if is_last_section:
-                save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext)
+                calculated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate)
                 break
     except AssertionError:
         shared.log.info('FramePack: interrupted')
         if shared.opts.keep_incomplete:
-            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext)
+            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate=0)
     except Exception as e:
         shared.log.error(f'FramePack: {e}')
         errors.display(e, 'FramePack')
@@ -282,5 +293,5 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         memory.unload_complete_models()
     stream.output_queue.push(('end', None))
     t1 = time.time()
-    shared.log.info(f'Processed: frames={calculated_frames} its={(steps*calculated_frames)/(t1-t0):.2f} time={t1-t0:.2f} timers={timer.process.dct()} memory={memstats.memory_stats()}')
+    shared.log.info(f'Processed: frames={calculated_frames} its={(shared.state.sampling_step)/(t1-t0):.2f} time={t1-t0:.2f} timers={timer.process.dct()} memory={memstats.memory_stats()}')
     shared.state.end()
