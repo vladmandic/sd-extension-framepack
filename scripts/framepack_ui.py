@@ -202,7 +202,7 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 with gr.Row():
-                    input_image = gr.Image(sources='upload', type="numpy", label="Image", height=256, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
+                    input_image = gr.Image(sources='upload', type="numpy", label="Image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
                 with gr.Row():
                     btn_load = gr.Button(value="Load model", elem_id="framepack_btn_load", interactive=True)
                     btn_unload = gr.Button(value="Unload model", elem_id="framepack_btn_unload", interactive=True)

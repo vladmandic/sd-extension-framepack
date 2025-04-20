@@ -293,5 +293,5 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         memory.unload_complete_models()
     stream.output_queue.push(('end', None))
     t1 = time.time()
-    shared.log.info(f'Processed: frames={calculated_frames} its={(shared.state.sampling_step)/(t1-t0):.2f} time={t1-t0:.2f} timers={timer.process.dct()} memory={memstats.memory_stats()}')
+    shared.log.info(f'Processed: frames={calculated_frames} fps={calculated_frames/(t1-t0):.2f} its={(shared.state.sampling_step)/(t1-t0):.2f} time={t1-t0:.2f} timers={timer.process.dct()} memory={memstats.memory_stats()}')
     shared.state.end()
