@@ -15,7 +15,6 @@ git_dir = os.path.join(os.path.dirname(__file__), '..', 'framepack')
 git_repo = 'https://github.com/lllyasviel/framepack'
 git_commit = '743657ef2355920fb2f1f934a34647ccd0f916c7'
 queue_lock = threading.Lock()
-loaded = False
 resolutions = [
     'Auto',
     '416 x 960',
@@ -89,8 +88,7 @@ def prepare_prompt(p):
 
 
 def load_model(offload_native, attention):
-    global loaded # pylint: disable=global-statement
-    if not loaded:
+    if shared.sd_model_type != 'hunyuanvideo':
         yield gr.update(), gr.update(), 'Installing Framepack'
         framepack_install.install_requirements(attention)
         framepack_install.git_clone(git_repo=git_repo, git_dir=git_dir, tmp_dir=tmp_dir)
@@ -106,11 +104,8 @@ def load_model(offload_native, attention):
 
 
 def unload_model():
-    global loaded # pylint: disable=global-statement
-    if loaded:
-        shared.log.debug('FramePack unload')
-        framepack_load.unload_model()
-        loaded = False
+    shared.log.debug('FramePack unload')
+    framepack_load.unload_model()
     return gr.update(), gr.update(), 'Model unloaded'
 
 
@@ -124,7 +119,7 @@ def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, r
         progress.start_task(task_id)
 
         yield from load_model(offload_native, attention)
-        if not loaded:
+        if shared.sd_model_type != 'hunyuanvideo':
             progress.finish_task(task_id)
             return gr.update(), gr.update(), 'Model load failed'
 
