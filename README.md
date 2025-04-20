@@ -63,6 +63,8 @@ Clone repository into SD.Next `/extensions` folder
 
 ## TODO
 
+- prompt template
+- CFGzero
 - LoRA support
 - frame upscaling
 - full codebase integration
