@@ -101,6 +101,9 @@ def load_model(offload_native: bool = True):
             transformer=transformer,
             scheduler=None,
         )
+
+        shared.sd_model = model_quant.do_post_load_quant(shared.sd_model)
+
         diffusers.loaders.peft._SET_ADAPTER_SCALE_FN_MAPPING['HunyuanVideoTransformer3DModelPacked'] = lambda model_cls, weights: weights # pylint: disable=protected-access
         shared.log.info(f'FramePack load: model={shared.sd_model.__class__.__name__} type={shared.sd_model_type} offload={"native" if offload_native else "lllyasviel"}')
         if offload_native:
