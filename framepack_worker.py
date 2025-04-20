@@ -1,6 +1,8 @@
 import os
 import time
+import datetime
 import torch
+import torchvision
 import numpy as np
 import einops
 from modules import shared, errors ,devices, sd_models, timer, memstats
@@ -9,24 +11,56 @@ from modules import shared, errors ,devices, sd_models, timer, memstats
 stream = None # AsyncStream
 
 
-def save_video(history_pixels, mp4_fps, mp4_crf):
-    from diffusers_helper import utils
-    if history_pixels is None:
+def save_video(pixels, codec: str = 'libx264', fps: float = 24, crf: int = 16):
+    if pixels is None:
         return
     t_save = time.time()
-    job_id = utils.generate_timestamp()
-    output_filename = os.path.join(shared.opts.outdir_video, f'{job_id}.mp4')
-    utils.save_bcthw_as_mp4(history_pixels, output_filename, fps=mp4_fps, crf=mp4_crf)
-    timer.process.add('save', time.time()-t_save)
-    shared.log.info(f'FramePack video: file={output_filename} shape={history_pixels.shape} fps={mp4_fps} crf={mp4_crf}')
-    stream.output_queue.push(('file', output_filename))
+    # from diffusers_helper import utils
+    # utils.save_bcthw_as_mp4(history_pixels, output_filename, fps=mp4_fps, crf=mp4_crf)
+    try:
+        n, _c, t, h, w = pixels.shape
+        x = torch.clamp(pixels.float(), -1., 1.) * 127.5 + 127.5
+        x = x.detach().cpu().to(torch.uint8)
+        x = einops.rearrange(x, '(m n) c t h w -> t (m h) (n w) c', n=n)
+        timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+
+        try:
+            codec = 'libx264'
+            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
+            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
+        except Exception as e:
+            shared.log.error(f'FramePack video: {e}')
+        try:
+            codec = 'libx265'
+            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
+            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
+        except Exception as e:
+            shared.log.error(f'FramePack video: {e}')
+        try:
+            codec = 'libaom-av1'
+            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
+            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
+        except Exception as e:
+            shared.log.error(f'FramePack video: {e}')
+        try:
+            codec = 'libvpx-vp9'
+            output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{codec}-f{t}.mp4')
+            torchvision.io.write_video(output_filename, x, fps=fps, video_codec=codec, options={'crf': str(int(crf))})
+        except Exception as e:
+            shared.log.error(f'FramePack video: {e}')
+
+        timer.process.add('save', time.time()-t_save)
+        shared.log.info(f'FramePack video: file="{output_filename}" codec={codec} frames={t} width={w} height={h} fps={fps} crf={crf}')
+        stream.output_queue.push(('file', output_filename))
+    except Exception as e:
+        shared.log.error(f'FramePack video: {e}')
 
 
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_crf, mp4_fps):
+def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_crf, mp4_fps, mp4_codec):
     timer.process.reset()
     memstats.reset_stats()
-    if stream is None:
+    if stream is None or shared.state.interrupted or shared.state.skipped:
         shared.log.error('FramePack: stream is None')
         stream.output_queue.push(('end', None))
         return
@@ -144,7 +178,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{lattent_padding_loops} frames={total_generated_latent_frames}/{num_frames}')
             is_last_section = latent_padding == 0
             latent_padding_size = latent_padding * latent_window_size
-            if stream.input_queue.top() == 'end':
+            if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
                 stream.output_queue.push(('end', None))
                 return
             indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
@@ -164,15 +198,22 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
                 transformer.initialize_teacache(enable_teacache=False)
 
             def callback(d):
+                if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
+                    stream.output_queue.push(('progress', (None, 'Interrupted...')))
+                    stream.output_queue.push(('end', None))
+                    raise AssertionError('Interrupted...')
+                if shared.state.paused:
+                    shared.log.debug('Sampling paused')
+                    while shared.state.paused:
+                        if shared.state.interrupted or shared.state.skipped:
+                            raise AssertionError('Interrupted...')
+                        time.sleep(0.1)
                 nonlocal calculated_frames
                 t_preview = time.time()
                 preview = d['denoised']
                 preview = hunyuan.vae_decode_fake(preview)
                 preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
                 preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
-                if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
-                    stream.output_queue.push(('end', None))
-                    raise KeyboardInterrupt('interrupted')
                 current_step = d['i'] + 1
                 shared.state.textinfo = ''
                 shared.state.sampling_step = ((lattent_padding_loop-1) * steps) + current_step # noqa: B023
@@ -241,12 +282,12 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             timer.process.add('vae', time.time()-t_vae)
 
             if is_last_section:
-                save_video(history_pixels, mp4_fps, mp4_crf)
+                save_video(history_pixels, mp4_codec, mp4_fps, mp4_crf)
                 break
-    except KeyboardInterrupt:
+    except AssertionError:
         shared.log.info('FramePack: interrupted')
         if shared.opts.keep_incomplete:
-            save_video(history_pixels, mp4_fps, mp4_crf)
+            save_video(history_pixels, mp4_codec, mp4_fps, mp4_crf)
     except Exception as e:
         shared.log.error(f'FramePack: {e}')
         errors.display(e, 'FramePack')

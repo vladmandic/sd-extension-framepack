@@ -1,0 +1,11 @@
+#framepack_actions_column { flex-flow: wrap; justify-content: space-between; gap: 0.3em; height: fit-content; }
+#framepack_generate_box { gap: 0.5em; flex-wrap: unset; min-width: unset; width: 100%; }
+#framepack_generate_box > button { max-width: unset; }
+#framepack_generate_box > button { min-height: 44px !important; max-height: 44px !important; line-height: 1em; white-space: break-spaces; min-width: unset; }
+#framepack_generate_box button:nth-child(1) { flex-grow: 2; }
+#framepack_generate_box button:nth-child(2) { flex-grow: 1; }
+#framepack_generate_line2 > button { height: 2em; line-height: 0; font-size: var(--text-md); min-width: unset; display: block !important; }
+#framepack_generate_line2, #framepack_tools { display: flex; }
+#framepack_prompt_container { margin-right: var(--layout-gap); resize: vertical !important; }
+#framepack_prompt, #framepack_neg_prompt { display: contents; }
+#framepack_seed { min-width: 90px !important }
