@@ -95,6 +95,7 @@ def load_model(offload_native, attention):
         framepack_install.git_update(git_dir=git_dir, git_commit=git_commit)
         sys.path.append(git_dir)
         framepack_hijack.set_progress_bar_config(bar_format='Progress {rate_fmt}{postfix} {bar} {percentage:3.0f}% {n_fmt}/{total_fmt} {elapsed} {remaining} ' + '\x1b[38;5;71m', ncols=80, colour='#327fba')
+        framepack_hijack.set_prompt_template()
         yield gr.update(), gr.update(), 'Model loading...', ''
         loaded = framepack_load.load_model(offload_native)
         if loaded:
@@ -109,8 +110,8 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention):
-    if input_image is None:
+def run_framepack(task_id, init_image, end_image, prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention):
+    if init_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
 
@@ -130,9 +131,12 @@ def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, r
         if seed is None or seed == '' or seed == -1:
             random.seed()
             seed = int(random.randrange(4294967294))
-        shared.log.info(f'FramePack start: {task_id} resolution="{resolution}" seed={seed} duration={duration} teacache={use_teacache} fps={mp4_fps} codec={mp4_codec} ext="{mp4_ext}" options="{mp4_opt}"')
-        input_image = prepare_image(input_image, resolution)
-        w, h, _c = input_image.shape
+        mode = 'i2v' if end_image is None else 'flf2v'
+        shared.log.info(f'FramePack start: {task_id} mode={mode} resolution="{resolution}" seed={seed} duration={duration} teacache={use_teacache} fps={mp4_fps} codec={mp4_codec} ext="{mp4_ext}" options="{mp4_opt}"')
+        init_image = prepare_image(init_image, resolution)
+        if end_image is not None:
+            end_image = prepare_image(end_image, resolution)
+        w, h, _c = init_image.shape
         p = processing.StableDiffusionProcessingVideo(
             sd_model=shared.sd_model,
             prompt=prompt,
@@ -147,7 +151,8 @@ def run_framepack(task_id, input_image, prompt, negative_prompt, styles, seed, r
 
         async_run(
             framepack_worker.worker,
-            input_image,
+            init_image,
+            end_image,
             p.prompt,
             p.negative_prompt,
             p.seed,
@@ -197,7 +202,8 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 with gr.Row():
-                    input_image = gr.Image(sources='upload', type="numpy", label="Image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
+                    input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
+                    end_image = gr.Image(sources='upload', type="numpy", label="End image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
                 with gr.Row():
                     btn_load = gr.Button(value="Load model", elem_id="framepack_btn_load", interactive=True)
                     btn_unload = gr.Button(value="Unload model", elem_id="framepack_btn_unload", interactive=True)
@@ -244,7 +250,29 @@ def create_ui():
             generate.click(
                 fn=run_framepack,
                 _js="submit_framepack",
-                inputs=[task_id, input_image, prompt, negative, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention],
+                inputs=[task_id,
+                        input_image,
+                        end_image,
+                        prompt,
+                        negative,
+                        styles,
+                        seed,
+                        resolution,
+                        duration,
+                        latent_ws,
+                        steps,
+                        cfg_scale, cfg_distilled, cfg_rescale,
+                        shift,
+                        gpu_preserved,
+                        offload_native,
+                        use_teacache,
+                        mp4_fps,
+                        mp4_codec,
+                        mp4_opt,
+                        mp4_ext,
+                        mp4_interpolate,
+                        attention,
+                       ],
                 outputs=outputs,
             )
 

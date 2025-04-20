@@ -51,7 +51,7 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
 
 
 @torch.no_grad()
-def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate):
+def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -117,6 +117,10 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         height, width, _C = input_image.shape
         input_image_pt = torch.from_numpy(input_image).float() / 127.5 - 1
         input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
+        has_end_image = end_image is not None
+        if has_end_image:
+            end_image_pt = torch.from_numpy(end_image).float() / 127.5 - 1
+            end_image_pt = end_image_pt.permute(2, 0, 1)[None, :, None]
 
         # VAE encoding
         stream.output_queue.push(('progress', (None, 'VAE encoding...')))
@@ -126,6 +130,8 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         else:
             memory.load_model_as_complete(vae, target_device=devices.device)
         start_latent = hunyuan.vae_encode(input_image_pt, vae)
+        if has_end_image:
+            end_latent = hunyuan.vae_encode(end_image_pt, vae)
         t2 = time.time()
         timer.process.add('encode', t2-t1)
 
@@ -140,6 +146,10 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             memory.load_model_as_complete(image_encoder, target_device=devices.device)
         image_encoder_output = clip_vision.hf_clip_vision_encode(input_image, feature_extractor, image_encoder)
         image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+        if has_end_image:
+            end_image_encoder_output = clip_vision.hf_clip_vision_encode(end_image, feature_extractor, image_encoder)
+            end_image_encoder_last_hidden_state = end_image_encoder_output.last_hidden_state
+            image_encoder_last_hidden_state = (image_encoder_last_hidden_state + end_image_encoder_last_hidden_state) / 2 # Combine both image embeddings or use a weighted approach
         t3 = time.time()
         timer.process.add('vision', t3-t2)
 
@@ -158,7 +168,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
         history_pixels = None
         total_generated_latent_frames = 0
-        latent_paddings = reversed(range(total_latent_sections))
+        latent_paddings = list(reversed(range(total_latent_sections)))
         if total_latent_sections > 4:
             # In theory the latent_paddings should follow the above sequence, but it seems that duplicating some
             # items looks better than expanding it when total_latent_sections > 4
@@ -171,6 +181,7 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
         for latent_padding in latent_paddings:
             lattent_padding_loop += 1
             shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{lattent_padding_loops} frames={total_generated_latent_frames}/{num_frames}')
+            is_first_section = latent_padding == latent_paddings[0]
             is_last_section = latent_padding == 0
             latent_padding_size = latent_padding * latent_window_size
             if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
@@ -182,6 +193,10 @@ def worker(input_image, prompt, n_prompt, seed, total_second_length, latent_wind
             clean_latents_pre = start_latent.to(history_latents)
             clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
             clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
+            if has_end_image and is_first_section:
+                clean_latents_post = end_latent.to(history_latents) # pylint: disable=possibly-used-before-assignment
+                clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
+
             if offload_native:
                 sd_models.apply_balanced_offload(shared.sd_model)
             else:

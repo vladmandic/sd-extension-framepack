@@ -2,7 +2,7 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- *quantization support, new offloading, more configuration options, cross-platform, multiple video codecs, frame interpolation*  
+- *i2v & flf2v support, quantization support, new offloading, more configuration options, cross-platform, multiple video codecs, frame interpolation*  
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension, but will be fully > integrated into the main codebase in the future  
@@ -26,6 +26,8 @@ Clone repository into SD.Next `/extensions` folder
 
 ## Differences
 
+- Supports both I2V (image-to-video) and FLF2V (frame-last-frame-to-video) modes  
+  You can choose if you want to provide end frame or not  
 - Implement both SD.Next **Balanced offloading** (native) and **lllyasviel offloading**  
   Balanced offload will use more resources, but unless you have a low-end GPU, it should also be much faster  
   especially when used together with quantization  
