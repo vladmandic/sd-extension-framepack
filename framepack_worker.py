@@ -16,6 +16,7 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
         return 0
     t_save = time.time()
     try:
+        stream.output_queue.push(('progress', (None, 'Saving video...')))
         if mp4_interpolate > 0:
             x = pixels.squeeze(0).permute(1, 0, 2, 3)
             interpolated = rife.interpolate_nchw(x, count=mp4_interpolate+1)

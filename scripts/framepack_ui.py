@@ -15,23 +15,6 @@ git_dir = os.path.join(os.path.dirname(__file__), '..', 'framepack')
 git_repo = 'https://github.com/lllyasviel/framepack'
 git_commit = '743657ef2355920fb2f1f934a34647ccd0f916c7'
 queue_lock = threading.Lock()
-resolutions = [
-    'Auto',
-    '416 x 960',
-    '448 x 864',
-    '480 x 832',
-    '512 x 768',
-    '544 x 704',
-    '576 x 672',
-    '608 x 640',
-    '640 x 608',
-    '672 x 576',
-    '704 x 544',
-    '768 x 512',
-    '832 x 480',
-    '864 x 448',
-    '960 x 416',
-]
 
 
 def get_codecs():
@@ -60,21 +43,39 @@ def get_codecs():
 
 
 def prepare_image(image, resolution):
+    buckets = [
+        (416, 960),
+        (448, 864),
+        (480, 832),
+        (512, 768),
+        (544, 704),
+        (576, 672),
+        (608, 640),
+        (640, 608),
+        (672, 576),
+        (704, 544),
+        (768, 512),
+        (832, 480),
+        (864, 448),
+        (960, 416),
+    ]
+
     from diffusers_helper.utils import resize_and_center_crop
     h, w, _c = image.shape
-    if resolution == 'Auto':
-        min_metric = float('inf')
-        buckets = [map(int, resolution.split(' x ')) for resolution in resolutions[1:]]
-        for (bucket_h, bucket_w) in buckets:
-            metric = abs(h * bucket_w - w * bucket_h)
-            if metric <= min_metric:
-                min_metric = metric
-                best_h, best_w = bucket_h, bucket_w
-    else:
-        best_h, best_w = map(int, resolution.split(' x '))
-    image = resize_and_center_crop(image, target_width=best_w, target_height=best_h)
+
+    min_metric = float('inf')
+    scale_factor = resolution / 640.0
+    scaled_h, scaled_w = h, w
+    for (bucket_h, bucket_w) in buckets:
+        metric = abs(h * bucket_w - w * bucket_h)
+        if metric <= min_metric:
+            min_metric = metric
+            scaled_h = round(bucket_h * scale_factor / 16) * 16
+            scaled_w = round(bucket_w * scale_factor / 16) * 16
+
+    image = resize_and_center_crop(image, target_height=scaled_h, target_width=scaled_w)
     h0, w0, _c = image.shape
-    shared.log.debug(f'FramePack: input="{h}x{w}" resized="{h0}x{w0}"')
+    shared.log.debug(f'FramePack: input="{h}x{w}" resized="{h0}x{w0}" resolution={resolution} scale={scale_factor}')
     return image
 
 
@@ -208,8 +209,8 @@ def create_ui():
                     btn_load = gr.Button(value="Load model", elem_id="framepack_btn_load", interactive=True)
                     btn_unload = gr.Button(value="Unload model", elem_id="framepack_btn_unload", interactive=True)
                 with gr.Row():
-                    resolution = gr.Dropdown(label="Resolution", choices=resolutions, value='Auto', type='value', elem_id="framepack_resolution")
-                    duration = gr.Slider(label="Video duration", minimum=1, maximum=120, value=4, step=0.1)
+                    resolution = gr.Slider(label="Resolution", minimum=240, maximum=1040, value=640, step=16)
+                    duration = gr.Slider(label="Duration", minimum=1, maximum=120, value=4, step=0.1)
                     mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=24, step=1)
                     mp4_interpolate = gr.Slider(label="Interpolation", minimum=0, maximum=10, value=0, step=1)
                 with gr.Accordion(label="Video codec", open=False):

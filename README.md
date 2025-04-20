@@ -26,14 +26,17 @@ Clone repository into SD.Next `/extensions` folder
 
 ## Differences
 
-- Supports both I2V (image-to-video) and FLF2V (frame-last-frame-to-video) modes  
+- Supports both **I2V** (image-to-video) and **FLF2V** (frame-last-frame-to-video) modes  
   You can choose if you want to provide end frame or not  
+- Supports resolution scaling: from 240p to 960p  
+  Input image will be resized to closest aspect ratio supported by HV and scaled to desired resolution  
+  *Note*: resolution is directly proportional to VRAM usage, so if you have low VRAM, use lower resolution  
 - Implement both SD.Next **Balanced offloading** (native) and **lllyasviel offloading**  
   Balanced offload will use more resources, but unless you have a low-end GPU, it should also be much faster  
   especially when used together with quantization  
 - Add support for **LLM** and **DiT/Video** modules on-the-fly quantization **quantization**  
   Only available when using native offloading, configure as usual in *settings -> quantization*  
-- add support for post-load quantization such as **NNCF**  
+- Add support for post-load quantization such as **NNCF**  
 - Configurable resolution, frame-rate
 - Configurable video codec and codec options  
   Includes both hardware-accelerated codecs (e.g. `hevc_nvenc`) and software codecs (e.g. `libx264`)
@@ -44,6 +47,7 @@ Clone repository into SD.Next `/extensions` folder
 ### Internals  
 
 - Removed hardcoded device mappings
+- Modified HV prompt template  
 - State management
 - Create actual model pipeline from individual components  
 - Add inference stats  
@@ -65,9 +69,8 @@ Clone repository into SD.Next `/extensions` folder
 
 ## TODO
 
-- prompt template
 - CFGzero
 - LoRA support
-- frame upscaling
-- full codebase integration
-- api
+- Frame upscaling
+- Full codebase integration
+- API
