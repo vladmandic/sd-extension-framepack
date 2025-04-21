@@ -75,7 +75,7 @@ def prepare_image(image, resolution):
 
     image = resize_and_center_crop(image, target_height=scaled_h, target_width=scaled_w)
     h0, w0, _c = image.shape
-    shared.log.debug(f'FramePack: input="{h}x{w}" resized="{h0}x{w0}" resolution={resolution} scale={scale_factor}')
+    shared.log.debug(f'FramePack: input="{w}x{h}" resized="{w0}x{h0}" resolution={resolution} scale={scale_factor}')
     return image
 
 
@@ -88,7 +88,7 @@ def prepare_prompt(p):
     extra_networks.activate(p)
 
 
-def load_model(offload_native, attention):
+def load_model(attention):
     if shared.sd_model_type != 'hunyuanvideo':
         yield gr.update(), gr.update(), 'Installing Framepack'
         framepack_install.install_requirements(attention)
@@ -98,7 +98,7 @@ def load_model(offload_native, attention):
         framepack_hijack.set_progress_bar_config(bar_format='Progress {rate_fmt}{postfix} {bar} {percentage:3.0f}% {n_fmt}/{total_fmt} {elapsed} {remaining} ' + '\x1b[38;5;71m', ncols=80, colour='#327fba')
         framepack_hijack.set_prompt_template()
         yield gr.update(), gr.update(), 'Model loading...', ''
-        loaded = framepack_load.load_model(offload_native)
+        loaded = framepack_load.load_model()
         if loaded:
             return gr.update(), gr.update(), 'Model loaded'
         else:
@@ -111,7 +111,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, init_image, end_image, prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, gpu_preserved, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention):
+def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention):
     if init_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
@@ -120,7 +120,7 @@ def run_framepack(task_id, init_image, end_image, prompt, negative_prompt, style
     with queue_lock:
         progress.start_task(task_id)
 
-        yield from load_model(offload_native, attention)
+        yield from load_model(attention)
         if shared.sd_model_type != 'hunyuanvideo':
             progress.finish_task(task_id)
             return gr.update(), gr.update(), 'Model load failed'
@@ -155,6 +155,7 @@ def run_framepack(task_id, init_image, end_image, prompt, negative_prompt, style
             init_image,
             end_image,
             p.prompt,
+            section_prompt,
             p.negative_prompt,
             p.seed,
             duration,
@@ -164,8 +165,6 @@ def run_framepack(task_id, init_image, end_image, prompt, negative_prompt, style
             cfg_distilled,
             cfg_rescale,
             shift,
-            gpu_preserved,
-            offload_native,
             use_teacache,
             mp4_fps,
             mp4_codec,
@@ -197,6 +196,12 @@ def process_end():
     return gr.update(), gr.update(), 'Interrupted...'
 
 
+def change_sections(duration, mp4_fps, mp4_interpolate, latent_ws):
+    num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration))
+    num_frames = (latent_ws * 4 - 3) * num_sections + 1
+    return gr.update(value=f'Target video: {num_frames} frames in {num_sections} sections'), gr.update(lines=num_sections)
+
+
 def create_ui():
     with gr.Blocks(analytics_enabled=False) as ui:
         prompt, styles, negative, generate, _reprocess, paste, _networks_button, _token_counter, _token_button, _token_counter_negative, _token_button_negative = ui_sections.create_toprow(is_img2img=False, id_part="framepack", negative_visible=False, reprocess_visible=False)
@@ -211,8 +216,12 @@ def create_ui():
                 with gr.Row():
                     resolution = gr.Slider(label="Resolution", minimum=240, maximum=1040, value=640, step=16)
                     duration = gr.Slider(label="Duration", minimum=1, maximum=120, value=4, step=0.1)
-                    mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=24, step=1)
+                    mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=20, step=1)
                     mp4_interpolate = gr.Slider(label="Interpolation", minimum=0, maximum=10, value=0, step=1)
+                with gr.Row():
+                    section_html = gr.HTML(show_label=False, elem_id="framepack_section_html")
+                with gr.Row():
+                    section_prompt = gr.Textbox(label="Section prompts", elem_id="framepack_section_prompt", lines=2, placeholder="Optional one-line prompt suffix per each video section", interactive=True)
                 with gr.Accordion(label="Video codec", open=False):
                     with gr.Row():
                         mp4_codec = gr.Dropdown(label="Codec", choices=['libx264'], value='libx264', type='value')
@@ -230,22 +239,24 @@ def create_ui():
                         cfg_distilled = gr.Slider(label="Distilled CFG scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
                         cfg_rescale = gr.Slider(label="CFG re-scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01)
                 with gr.Accordion(label="Processing", open=False):
-                    offload_native = gr.Checkbox(label='Native offloading', value=True)
                     use_teacache = gr.Checkbox(label='Enable TeaCache', value=True)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
-                    gpu_preserved = gr.Slider(label="Preserved memory", minimum=6, maximum=128, value=6, step=0.1)
                 override_settings = ui_common.create_override_inputs('framepack')
 
             with gr.Column():
                 with gr.Tabs():
                     with gr.TabItem("Video"):
-                        result_video = gr.Video(label="Video", autoplay=True, show_share_button=False, height=512, loop=True)
+                        result_video = gr.Video(label="Video", autoplay=True, show_share_button=False, height=512, loop=True, show_label=False, elem_id="framepack_result_video")
                     with gr.Tab("Preview"):
-                        preview_image = gr.Image(label="Current", height=512)
-                progress_desc = gr.Markdown('')
+                        preview_image = gr.Image(label="Current", height=512, show_label=False, elem_id="framepack_preview_image")
+                progress_desc = gr.HTML('', show_label=False, elem_id="framepack_progress_desc")
+
+            duration.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
+            mp4_fps.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
+            mp4_interpolate.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
 
             outputs = [result_video, preview_image, progress_desc]
-            btn_load.click(fn=load_model, inputs=[offload_native, attention], outputs=outputs)
+            btn_load.click(fn=load_model, inputs=[attention], outputs=outputs)
             btn_unload.click(fn=unload_model, outputs=outputs)
             task_id = gr.Textbox(visible=False, value='')
             generate.click(
@@ -255,6 +266,7 @@ def create_ui():
                         input_image,
                         end_image,
                         prompt,
+                        section_prompt,
                         negative,
                         styles,
                         seed,
@@ -264,8 +276,6 @@ def create_ui():
                         steps,
                         cfg_scale, cfg_distilled, cfg_rescale,
                         shift,
-                        gpu_preserved,
-                        offload_native,
                         use_teacache,
                         mp4_fps,
                         mp4_codec,
@@ -281,7 +291,6 @@ def create_ui():
             generation_parameters_copypaste.add_paste_fields("video", None, paste_fields, override_settings)
             bindings = generation_parameters_copypaste.ParamBinding(paste_button=paste, tabname="framepack", source_text_component=prompt, source_image_component=None)
             generation_parameters_copypaste.register_paste_params_button(bindings)
-
 
     return [(ui, "FramePack", "framepack_tab")]
 

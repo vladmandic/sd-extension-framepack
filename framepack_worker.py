@@ -3,8 +3,8 @@ import time
 import datetime
 import torch
 import torchvision
-import numpy as np
 import einops
+import framepack_vae
 from modules import shared, errors ,devices, sd_models, timer, memstats, rife
 
 
@@ -43,6 +43,7 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
         torchvision.io.write_video(output_filename, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
         timer.process.add('save', time.time()-t_save)
         shared.log.info(f'FramePack video: file="{output_filename}" codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
+        stream.output_queue.push(('progress', (None, f'Video {os.path.basename(output_filename)} | Codec {mp4_codec} | Size {w}x{h}x{t} | FPS {mp4_fps}')))
         stream.output_queue.push(('file', output_filename))
         return t
     except Exception as e:
@@ -51,8 +52,20 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
         return 0
 
 
-@torch.no_grad()
-def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg, gs, rs, shift, gpu_memory_preservation, offload_native, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate):
+def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length):
+    try:
+        real_fps = mp4_fps / (mp4_interpolate + 1)
+        total_latent_sections = int(max((total_second_length * real_fps) / (latent_window_size * 4), 1))
+        latent_paddings = list(reversed(range(total_latent_sections)))
+        if total_latent_sections > 4: # extra padding for better quality
+            # latent_paddings = list(reversed(range(total_latent_sections)))
+            latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
+    except Exception:
+        latent_paddings = [0]
+    return latent_paddings
+
+
+def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -62,252 +75,215 @@ def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, 
 
     from diffusers_helper import hunyuan
     from diffusers_helper import utils
-    from diffusers_helper import memory
-    from diffusers_helper import clip_vision
     from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
 
-    calculated_frames = 0
-    calc_fps = mp4_fps / (mp4_interpolate+1) if mp4_interpolate > 0 else mp4_fps
-    total_latent_sections = (total_second_length * calc_fps) / (latent_window_size * 4)
-    total_latent_sections = int(max(round(total_latent_sections), 1))
+    total_generated_frames = 0
+    total_generated_latent_frames = 0
+    latent_paddings = get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length)
+    num_frames = latent_window_size * 4 - 3 # number of frames to generate in each section
+    prompts = section_prompt.splitlines()
+
     shared.state.begin('Video')
     shared.state.job_count = 1
 
-    try:
-        text_encoder = shared.sd_model.text_encoder
-        text_encoder_2 = shared.sd_model.text_encoder_2
-        tokenizer = shared.sd_model.tokenizer
-        tokenizer_2 = shared.sd_model.tokenizer_2
-        vae = shared.sd_model.vae
-        feature_extractor = shared.sd_model.feature_extractor
-        image_encoder = shared.sd_model.image_processor
-        transformer = shared.sd_model.transformer
+    text_encoder = shared.sd_model.text_encoder
+    text_encoder_2 = shared.sd_model.text_encoder_2
+    tokenizer = shared.sd_model.tokenizer
+    tokenizer_2 = shared.sd_model.tokenizer_2
+    vae = shared.sd_model.vae
+    feature_extractor = shared.sd_model.feature_extractor
+    image_encoder = shared.sd_model.image_processor
+    transformer = shared.sd_model.transformer
+    sd_models.apply_balanced_offload(shared.sd_model)
 
-        shared.state.textinfo = 'Start'
-        stream.output_queue.push(('progress', (None, 'Starting..')))
-        if offload_native:
-            sd_models.apply_balanced_offload(shared.sd_model)
-        else:
-            memory.unload_complete_models(text_encoder, text_encoder_2, image_encoder, vae, transformer)
-
+    def text_encode(prompt):
         t0 = time.time()
-
-        # Text encoding
+        shared.log.debug(f'FramePack: prompt="{prompt}"')
         shared.state.textinfo = 'Text encode'
         stream.output_queue.push(('progress', (None, 'Text encoding...')))
-        if offload_native:
-            sd_models.apply_balanced_offload(shared.sd_model)
-            sd_models.move_model(text_encoder, devices.device, force=True) # required as hunyuan.encode_prompt_conds checks device before calling model
-            sd_models.move_model(text_encoder_2, devices.device, force=True)
-        else:
-            memory.fake_diffusers_current_device(text_encoder, devices.device)
-            memory.load_model_as_complete(text_encoder_2, target_device=devices.device)
+        sd_models.apply_balanced_offload(shared.sd_model)
+        sd_models.move_model(text_encoder, devices.device, force=True) # required as hunyuan.encode_prompt_conds checks device before calling model
+        sd_models.move_model(text_encoder_2, devices.device, force=True)
         llama_vec, clip_l_pooler = hunyuan.encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
-        if cfg == 1:
-            llama_vec_n, clip_l_pooler_n = torch.zeros_like(llama_vec), torch.zeros_like(clip_l_pooler)
-        else:
+        if cfg_scale > 1:
             llama_vec_n, clip_l_pooler_n = hunyuan.encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
+        else:
+            llama_vec_n, clip_l_pooler_n = torch.zeros_like(llama_vec), torch.zeros_like(clip_l_pooler)
         llama_vec, llama_attention_mask = utils.crop_or_pad_yield_mask(llama_vec, length=512)
         llama_vec_n, llama_attention_mask_n = utils.crop_or_pad_yield_mask(llama_vec_n, length=512)
-        t1 = time.time()
-        timer.process.add('prompt', t1-t0)
+        timer.process.add('prompt', time.time()-t0)
+        return llama_vec, llama_vec_n, llama_attention_mask, llama_attention_mask_n, clip_l_pooler, clip_l_pooler_n
 
-        # Processing input image
-        shared.state.textinfo = 'Image process'
-        stream.output_queue.push(('progress', (None, 'Image processing...')))
-        height, width, _C = input_image.shape
+    def vae_encode(input_image, end_image):
+        t0 = time.time()
+        stream.output_queue.push(('progress', (None, 'VAE encoding...')))
+        sd_models.apply_balanced_offload(shared.sd_model)
+        sd_models.move_model(vae, devices.device, force=True)
         input_image_pt = torch.from_numpy(input_image).float() / 127.5 - 1
         input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
-        has_end_image = end_image is not None
-        if has_end_image:
+        start_latent = hunyuan.vae_encode(input_image_pt, vae)
+        if end_image is not None:
             end_image_pt = torch.from_numpy(end_image).float() / 127.5 - 1
             end_image_pt = end_image_pt.permute(2, 0, 1)[None, :, None]
-
-        # VAE encoding
-        stream.output_queue.push(('progress', (None, 'VAE encoding...')))
-        if offload_native:
-            sd_models.apply_balanced_offload(shared.sd_model)
-            sd_models.move_model(vae, devices.device, force=True)
-        else:
-            memory.load_model_as_complete(vae, target_device=devices.device)
-        start_latent = hunyuan.vae_encode(input_image_pt, vae)
-        if has_end_image:
             end_latent = hunyuan.vae_encode(end_image_pt, vae)
-        t2 = time.time()
-        timer.process.add('encode', t2-t1)
+        else:
+            end_latent = None
+        timer.process.add('encode', time.time()-t0)
+        return start_latent, end_latent
 
-        # CLIP Vision
+    def vision_encode(input_image, end_image):
+        t0 = time.time()
         shared.state.textinfo = 'Vision encode'
         stream.output_queue.push(('progress', (None, 'Vision encoding...')))
-        if offload_native:
-            sd_models.apply_balanced_offload(shared.sd_model)
-            sd_models.move_model(feature_extractor, devices.device, force=True)
-            sd_models.move_model(image_encoder, devices.device, force=True)
-        else:
-            memory.load_model_as_complete(image_encoder, target_device=devices.device)
-        image_encoder_output = clip_vision.hf_clip_vision_encode(input_image, feature_extractor, image_encoder)
+        sd_models.apply_balanced_offload(shared.sd_model)
+        sd_models.move_model(feature_extractor, devices.device, force=True)
+        sd_models.move_model(image_encoder, devices.device, force=True)
+        preprocessed = feature_extractor.preprocess(images=input_image, return_tensors="pt").to(device=image_encoder.device, dtype=image_encoder.dtype)
+        image_encoder_output = image_encoder(**preprocessed)
         image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
-        if has_end_image:
-            end_image_encoder_output = clip_vision.hf_clip_vision_encode(end_image, feature_extractor, image_encoder)
+        if end_image is not None:
+            preprocessed = feature_extractor.preprocess(images=end_image, return_tensors="pt").to(device=image_encoder.device, dtype=image_encoder.dtype)
+            end_image_encoder_output = image_encoder(**preprocessed)
             end_image_encoder_last_hidden_state = end_image_encoder_output.last_hidden_state
             image_encoder_last_hidden_state = (image_encoder_last_hidden_state + end_image_encoder_last_hidden_state) / 2 # Combine both image embeddings or use a weighted approach
-        t3 = time.time()
-        timer.process.add('vision', t3-t2)
+        timer.process.add('vision', time.time()-t0)
+        return image_encoder_last_hidden_state
 
-        # Dtype
-        llama_vec = llama_vec.to(transformer.dtype)
-        llama_vec_n = llama_vec_n.to(transformer.dtype)
-        clip_l_pooler = clip_l_pooler.to(transformer.dtype)
-        clip_l_pooler_n = clip_l_pooler_n.to(transformer.dtype)
-        image_encoder_last_hidden_state = image_encoder_last_hidden_state.to(transformer.dtype)
-
-        # Sampling
-        shared.state.textinfo = 'Sample'
-        stream.output_queue.push(('progress', (None, 'Start sampling...')))
-        rnd = torch.Generator("cpu").manual_seed(seed)
-        num_frames = latent_window_size * 4 - 3
-        history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
-        history_pixels = None
-        total_generated_latent_frames = 0
-        latent_paddings = list(reversed(range(total_latent_sections)))
-        if total_latent_sections > 4:
-            # In theory the latent_paddings should follow the above sequence, but it seems that duplicating some
-            # items looks better than expanding it when total_latent_sections > 4
-            # One can try to remove below trick and just
-            # use `latent_paddings = list(reversed(range(total_latent_sections)))` to compare
-            latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
-
-        lattent_padding_loop = 0
-        lattent_padding_loops = total_latent_sections if total_latent_sections <= 4 else len(latent_paddings)
-        for latent_padding in latent_paddings:
-            lattent_padding_loop += 1
-            shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{lattent_padding_loops} frames={calculated_frames}/{num_frames*lattent_padding_loops} window={latent_window_size} size={num_frames}')
-            is_first_section = latent_padding == latent_paddings[0]
-            is_last_section = latent_padding == 0
-            latent_padding_size = latent_padding * latent_window_size
-            if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
-                stream.output_queue.push(('end', None))
-                return
-            indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
-            clean_latent_indices_pre, _blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split([1, latent_padding_size, latent_window_size, 1, 2, 16], dim=1)
-            clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
-            clean_latents_pre = start_latent.to(history_latents)
-            clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
-            clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
-            if has_end_image and is_first_section:
-                clean_latents_post = end_latent.to(history_latents) # pylint: disable=possibly-used-before-assignment
-                clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
-
-            if offload_native:
-                sd_models.apply_balanced_offload(shared.sd_model)
-            else:
-                memory.unload_complete_models()
-                memory.move_model_to_device_with_memory_preservation(transformer, target_device=devices.device, preserved_memory_gb=gpu_memory_preservation)
-            if use_teacache:
-                transformer.initialize_teacache(enable_teacache=True, num_steps=steps)
-            else:
-                transformer.initialize_teacache(enable_teacache=False)
-
-            def callback(d):
-                if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
-                    stream.output_queue.push(('progress', (None, 'Interrupted...')))
-                    stream.output_queue.push(('end', None))
+    def step_callback(d):
+        if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
+            stream.output_queue.push(('progress', (None, 'Interrupted...')))
+            stream.output_queue.push(('end', None))
+            raise AssertionError('Interrupted...')
+        if shared.state.paused:
+            shared.log.debug('Sampling paused')
+            while shared.state.paused:
+                if shared.state.interrupted or shared.state.skipped:
                     raise AssertionError('Interrupted...')
-                if shared.state.paused:
-                    shared.log.debug('Sampling paused')
-                    while shared.state.paused:
-                        if shared.state.interrupted or shared.state.skipped:
-                            raise AssertionError('Interrupted...')
-                        time.sleep(0.1)
-                nonlocal calculated_frames
-                t_preview = time.time()
-                preview = d['denoised']
-                preview = hunyuan.vae_decode_fake(preview)
-                preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
-                preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
-                current_step = d['i'] + 1
-                shared.state.textinfo = ''
-                shared.state.sampling_step = ((lattent_padding_loop-1) * steps) + current_step # noqa: B023
-                shared.state.sampling_steps = steps * lattent_padding_loops
-                progress = shared.state.sampling_step / shared.state.sampling_steps
-                calculated_frames = int(max(0, total_generated_latent_frames * 4 - 3)) # noqa: B023
-                desc = f'Section: {lattent_padding_loop}/{lattent_padding_loops} Step: {current_step}/{steps} Frames: {calculated_frames} Progress: {progress:.2%}' # noqa: B023
-                stream.output_queue.push(('progress', (preview, desc)))
-                timer.process.add('preview', time.time()-t_preview)
-                return
+                time.sleep(0.1)
+        nonlocal total_generated_frames
+        t_preview = time.time()
+        preview = framepack_vae.vae_decode_simple(d['denoised'])
+        current_step = d['i'] + 1
+        shared.state.textinfo = ''
+        shared.state.sampling_step = ((lattent_padding_loop-1) * steps) + current_step
+        shared.state.sampling_steps = steps * len(latent_paddings)
+        progress = shared.state.sampling_step / shared.state.sampling_steps
+        total_generated_frames = int(max(0, total_generated_latent_frames * 4 - 3))
+        desc = f'Step {shared.state.sampling_step}/{shared.state.sampling_steps} | Current {current_step}/{steps} | Section {lattent_padding_loop}/{len(latent_paddings)} | Progress {progress:.2%}'
+        stream.output_queue.push(('progress', (preview, desc)))
+        timer.process.add('preview', time.time()-t_preview)
+        return
 
-            t_sample = time.time()
-            generated_latents = sample_hunyuan(
-                transformer=transformer,
-                sampler='unipc',
-                width=width,
-                height=height,
-                frames=num_frames,
-                real_guidance_scale=cfg,
-                distilled_guidance_scale=gs,
-                guidance_rescale=rs,
-                shift=shift if shift > 0 else None,
-                num_inference_steps=steps,
-                generator=rnd,
-                prompt_embeds=llama_vec,
-                prompt_embeds_mask=llama_attention_mask,
-                prompt_poolers=clip_l_pooler,
-                negative_prompt_embeds=llama_vec_n,
-                negative_prompt_embeds_mask=llama_attention_mask_n,
-                negative_prompt_poolers=clip_l_pooler_n,
-                device=devices.device,
-                dtype=devices.dtype,
-                image_embeddings=image_encoder_last_hidden_state,
-                latent_indices=latent_indices,
-                clean_latents=clean_latents,
-                clean_latent_indices=clean_latent_indices,
-                clean_latents_2x=clean_latents_2x,
-                clean_latent_2x_indices=clean_latent_2x_indices,
-                clean_latents_4x=clean_latents_4x,
-                clean_latent_4x_indices=clean_latent_4x_indices,
-                callback=callback,
-            )
-            timer.process.add('sample', time.time()-t_sample)
+    with devices.inference_context():
+        try:
+            t0 = time.time()
 
-            if is_last_section:
-                generated_latents = torch.cat([start_latent.to(generated_latents), generated_latents], dim=2)
-            total_generated_latent_frames += int(generated_latents.shape[2])
-            history_latents = torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
+            height, width, _C = input_image.shape
+            has_end_image = end_image is not None
+            start_latent, end_latent = vae_encode(input_image, end_image)
+            image_encoder_last_hidden_state = vision_encode(input_image, end_image)
 
-            real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
+            # Sample loop
+            shared.state.textinfo = 'Sample'
+            stream.output_queue.push(('progress', (None, 'Start sampling...')))
+            generator = torch.Generator("cpu").manual_seed(seed)
+            history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
+            history_pixels = None
+            lattent_padding_loop = 0
+            last_prompt = None
 
-            t_vae = time.time()
-            if offload_native:
+            for latent_padding in latent_paddings:
+                current_prompt = prompt + ' ' + prompts[lattent_padding_loop] if len(prompts) > lattent_padding_loop else prompt
+                if current_prompt != last_prompt:
+                    llama_vec, llama_vec_n, llama_attention_mask, llama_attention_mask_n, clip_l_pooler, clip_l_pooler_n = text_encode(current_prompt)
+                    last_prompt = current_prompt
+
+                lattent_padding_loop += 1
+                shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{len(latent_paddings)} frames={total_generated_frames}/{num_frames*len(latent_paddings)} window={latent_window_size} size={num_frames}')
+                is_first_section = latent_padding == latent_paddings[0]
+                is_last_section = latent_padding == 0
+                latent_padding_size = latent_padding * latent_window_size
+                if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
+                    stream.output_queue.push(('end', None))
+                    return
+                indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
+                clean_latent_indices_pre, _blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split([1, latent_padding_size, latent_window_size, 1, 2, 16], dim=1)
+                clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
+                clean_latents_pre = start_latent.to(history_latents)
+                clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
+                clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
+                if has_end_image and is_first_section:
+                    clean_latents_post = end_latent.to(history_latents) # pylint: disable=possibly-used-before-assignment
+                    clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
+
+                sd_models.apply_balanced_offload(shared.sd_model)
+                transformer.initialize_teacache(enable_teacache=use_teacache, num_steps=steps)
+
+                t_sample = time.time()
+                generated_latents = sample_hunyuan(
+                    transformer=transformer,
+                    sampler='unipc',
+                    width=width,
+                    height=height,
+                    frames=num_frames,
+                    num_inference_steps=steps,
+                    real_guidance_scale=cfg_scale,
+                    distilled_guidance_scale=cfg_distilled,
+                    guidance_rescale=cfg_rescale,
+                    shift=shift if shift > 0 else None,
+                    generator=generator,
+                    prompt_embeds=llama_vec, # pylint: disable=possibly-used-before-assignment
+                    prompt_embeds_mask=llama_attention_mask, # pylint: disable=possibly-used-before-assignment
+                    prompt_poolers=clip_l_pooler, # pylint: disable=possibly-used-before-assignment
+                    negative_prompt_embeds=llama_vec_n, # pylint: disable=possibly-used-before-assignment
+                    negative_prompt_embeds_mask=llama_attention_mask_n, # pylint: disable=possibly-used-before-assignment
+                    negative_prompt_poolers=clip_l_pooler_n, # pylint: disable=possibly-used-before-assignment
+                    image_embeddings=image_encoder_last_hidden_state,
+                    latent_indices=latent_indices,
+                    clean_latents=clean_latents,
+                    clean_latent_indices=clean_latent_indices,
+                    clean_latents_2x=clean_latents_2x,
+                    clean_latent_2x_indices=clean_latent_2x_indices,
+                    clean_latents_4x=clean_latents_4x,
+                    clean_latent_4x_indices=clean_latent_4x_indices,
+                    device=devices.device,
+                    dtype=devices.dtype,
+                    callback=step_callback,
+                )
+                timer.process.add('sample', time.time()-t_sample)
+
+                if is_last_section:
+                    generated_latents = torch.cat([start_latent.to(generated_latents), generated_latents], dim=2)
+                total_generated_latent_frames += int(generated_latents.shape[2])
+                history_latents = torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
+
+                real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
+
+                t_vae = time.time()
                 sd_models.apply_balanced_offload(shared.sd_model)
                 sd_models.move_model(vae, devices.device, force=True)
-            else:
-                memory.offload_model_from_device_for_memory_preservation(transformer, target_device=devices.device, preserved_memory_gb=8)
-                memory.load_model_as_complete(vae, target_device=devices.device)
-            if history_pixels is None:
-                history_pixels = hunyuan.vae_decode(real_history_latents, vae).cpu()
-            else:
-                section_latent_frames = (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
-                overlapped_frames = latent_window_size * 4 - 3
-                current_pixels = hunyuan.vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
-                history_pixels = utils.soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
-            timer.process.add('vae', time.time()-t_vae)
+                if history_pixels is None:
+                    history_pixels = hunyuan.vae_decode(real_history_latents, vae).cpu()
+                else:
+                    section_latent_frames = (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
+                    overlapped_frames = latent_window_size * 4 - 3
+                    current_pixels = hunyuan.vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
+                    history_pixels = utils.soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
+                timer.process.add('vae', time.time()-t_vae)
 
-            if is_last_section:
-                calculated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate)
-                break
-    except AssertionError:
-        shared.log.info('FramePack: interrupted')
-        if shared.opts.keep_incomplete:
-            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate=0)
-    except Exception as e:
-        shared.log.error(f'FramePack: {e}')
-        errors.display(e, 'FramePack')
+                if is_last_section:
+                    total_generated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate)
+                    break
+        except AssertionError:
+            shared.log.info('FramePack: interrupted')
+            if shared.opts.keep_incomplete:
+                save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate=0)
+        except Exception as e:
+            shared.log.error(f'FramePack: {e}')
+            errors.display(e, 'FramePack')
 
-    if offload_native:
-        sd_models.apply_balanced_offload(shared.sd_model)
-    else:
-        memory.unload_complete_models()
+    sd_models.apply_balanced_offload(shared.sd_model)
     stream.output_queue.push(('end', None))
     t1 = time.time()
-    shared.log.info(f'Processed: frames={calculated_frames} fps={calculated_frames/(t1-t0):.2f} its={(shared.state.sampling_step)/(t1-t0):.2f} time={t1-t0:.2f} timers={timer.process.dct()} memory={memstats.memory_stats()}')
+    shared.log.info(f'Processed: frames={total_generated_frames} fps={total_generated_frames/(t1-t0):.2f} its={(shared.state.sampling_step)/(t1-t0):.2f} time={t1-t0:.2f} timers={timer.process.dct()} memory={memstats.memory_stats()}')
     shared.state.end()

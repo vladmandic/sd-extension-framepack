@@ -6,14 +6,13 @@ repo_encoder = 'lllyasviel/flux_redux_bfl'
 repo_transformer = 'lllyasviel/FramePackI2V_HY'
 
 
-def load_model(offload_native: bool = True):
+def load_model():
     shared.state.begin('Load')
     try:
         import diffusers
         from diffusers import HunyuanVideoImageToVideoPipeline, AutoencoderKLHunyuanVideo
         from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
         from diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
-        from diffusers_helper.memory import DynamicSwapInstaller
 
         class FramepackHunyuanVideoPipeline(HunyuanVideoImageToVideoPipeline): # inherit and override
             def __init__(
@@ -53,7 +52,7 @@ def load_model(offload_native: bool = True):
         sd_models.unload_model_weights()
 
         shared.log.debug(f'FramePack load: module=llm repo="{repo_hunyuan}"')
-        load_args, quant_args = model_quant.get_dit_args({}, module='LLM', device_map=True, allow_quant=offload_native)
+        load_args, quant_args = model_quant.get_dit_args({}, module='LLM', device_map=True)
         text_encoder = LlamaModel.from_pretrained(repo_hunyuan, subfolder='text_encoder', cache_dir=shared.opts.hfcache_dir, **load_args, **quant_args)
         tokenizer = LlamaTokenizerFast.from_pretrained(repo_hunyuan, subfolder='tokenizer', cache_dir=shared.opts.hfcache_dir)
         text_encoder.requires_grad_(False)
@@ -83,7 +82,7 @@ def load_model(offload_native: bool = True):
         sd_models.move_model(image_encoder, devices.cpu)
 
         shared.log.debug(f'FramePack load: module=transformer repo="{repo_transformer}"')
-        load_args, quant_args = model_quant.get_dit_args({}, module='Video', device_map=True, allow_quant=offload_native)
+        load_args, quant_args = model_quant.get_dit_args({}, module='Video', device_map=True)
         transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained('lllyasviel/FramePackI2V_HY', cache_dir=shared.opts.hfcache_dir, **load_args, **quant_args)
         transformer.high_quality_fp32_output_for_inference = True
         transformer.requires_grad_(False)
@@ -105,12 +104,8 @@ def load_model(offload_native: bool = True):
         shared.sd_model = model_quant.do_post_load_quant(shared.sd_model)
 
         diffusers.loaders.peft._SET_ADAPTER_SCALE_FN_MAPPING['HunyuanVideoTransformer3DModelPacked'] = lambda model_cls, weights: weights # pylint: disable=protected-access
-        shared.log.info(f'FramePack load: model={shared.sd_model.__class__.__name__} type={shared.sd_model_type} offload={"native" if offload_native else "lllyasviel"}')
-        if offload_native:
-            sd_models.apply_balanced_offload(shared.sd_model)
-        else:
-            DynamicSwapInstaller.install_model(transformer, device=devices.device)
-            DynamicSwapInstaller.install_model(text_encoder, device=devices.device)
+        shared.log.info(f'FramePack load: model={shared.sd_model.__class__.__name__} type={shared.sd_model_type}')
+        sd_models.apply_balanced_offload(shared.sd_model)
         devices.torch_gc(force=True)
 
     except Exception as e:

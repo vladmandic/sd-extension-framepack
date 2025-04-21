@@ -2,7 +2,7 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- *i2v & flf2v support, quantization support, new offloading, more configuration options, cross-platform, multiple video codecs, frame interpolation*  
+- *i2v & flf2v support, complex actions with multi-prompts, quantization support, new offloading, more configuration options, cross-platform, multiple video codecs, frame interpolation*  
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension,  
@@ -32,7 +32,9 @@ Clone repository into SD.Next `/extensions` folder
 - Supports resolution scaling: from 240p to 960p  
   Input image will be resized to closest aspect ratio supported by HV and scaled to desired resolution  
   *Note*: resolution is directly proportional to VRAM usage, so if you have low VRAM, use lower resolution  
-- Implement both SD.Next **Balanced offloading** (native) and **lllyasviel offloading**  
+- Support for per-section prompt suffix which if provided uses separate prompt encodings for each prompt section  
+  Can be used to achieve complex actions that change over time  
+- Replace **lllyasviel offloading** with SD.Next **Balanced offloading**  
   Balanced offload will use more resources, but unless you have a low-end GPU, it should also be much faster  
   especially when used together with quantization  
 - Add support for **LLM** and **DiT/Video** modules on-the-fly quantization **quantization**  
@@ -44,16 +46,6 @@ Clone repository into SD.Next `/extensions` folder
 - Expose advanced options: *recommended not to change*  
 - Model download & load on-demand  
 - Configurable torch cross-attention  
-
-### Internals  
-
-- Removed hardcoded device mappings
-- Modified HV prompt template  
-- State management
-- Create actual model pipeline from individual components  
-- Add inference stats  
-- Redo logging  
-- Redo video saving  
 
 ### Video
 
@@ -68,6 +60,17 @@ Clone repository into SD.Next `/extensions` folder
 - Set path in *settings -> image paths -> video*  
 - If *settings -> image options -> keep incomplete images* is enabled, the video will be created even if interrupted  
 - Does not create intermediate video or image files  
+
+### Internals  
+
+- Refactored main loop  
+- Removed hardcoded device mappings  
+- Modified HV prompt template  
+- State management  
+- Create actual model pipeline from individual components  
+- Add inference stats  
+- Redo logging  
+- Redo video saving  
 
 ## TODO
 

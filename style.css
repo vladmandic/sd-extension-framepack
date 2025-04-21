@@ -9,3 +9,5 @@
 #framepack_prompt_container { margin-right: var(--layout-gap); resize: vertical !important; }
 #framepack_prompt, #framepack_neg_prompt { display: contents; }
 #framepack_seed { min-width: 90px !important }
+#framepack_section_html { margin-left: 0.3em; color: var(--body-text-color-subdued); }
+#framepack_progress_desc { color: var(--body-text-color-subdued);}
