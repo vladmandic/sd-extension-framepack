@@ -181,7 +181,7 @@ def worker(input_image, end_image, prompt, n_prompt, seed, total_second_length, 
         lattent_padding_loops = total_latent_sections if total_latent_sections <= 4 else len(latent_paddings)
         for latent_padding in latent_paddings:
             lattent_padding_loop += 1
-            shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{lattent_padding_loops} frames={total_generated_latent_frames}/{num_frames}')
+            shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{lattent_padding_loops} frames={calculated_frames}/{num_frames*lattent_padding_loops} window={latent_window_size} size={num_frames}')
             is_first_section = latent_padding == latent_paddings[0]
             is_last_section = latent_padding == 0
             latent_padding_size = latent_padding * latent_window_size
