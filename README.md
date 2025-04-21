@@ -5,7 +5,8 @@ With some major differences and improvements:
 - *i2v & flf2v support, quantization support, new offloading, more configuration options, cross-platform, multiple video codecs, frame interpolation*  
 
 > [!NOTE]
-> At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension, but will be fully > integrated into the main codebase in the future  
+> At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension,  
+> but will be fully integrated into the main codebase in the future  
 > Reason is to avoid breaking changes as upstream changes are made to the codebase  
 
 > [!IMPORTANT]
@@ -60,9 +61,10 @@ Clone repository into SD.Next `/extensions` folder
   Default codec is `libx264`, to see codecs available on your system, use refresh  
   *Note*: hardware-accelerated codecs (e.g. `hevc_nvenc`) will be at the top of the list  
 - Video can optionally have additional interpolated frames added  
-  For example, if you render 10sec 30fps video with 0 interpolated frames, its 300 frames that need to be generated  
-  But if you set 3 interpolated frames, video fps and duration do not change,  
-  but only 100 frames need to be generated and additional 200 interpolated frames are added in-between generated frames  
+  For example, if you render 10sec 30fps video with 0 interpolated frames,  
+  its 300 frames that need to be generated  
+  But if you set 3 interpolated frames, video fps and duration do not change, but only 100 frames  
+  need to be generated and additional 200 interpolated frames are added in-between generated frames  
 - Set path in *settings -> image paths -> video*  
 - If *settings -> image options -> keep incomplete images* is enabled, the video will be created even if interrupted  
 - Does not create intermediate video or image files  
