@@ -6,8 +6,8 @@ import torch
 import torchvision
 import einops
 import rich.progress as rp
-import framepack_vae
 from modules import shared, errors ,devices, sd_models, timer, memstats, rife
+import framepack_vae
 
 
 stream = None # AsyncStream

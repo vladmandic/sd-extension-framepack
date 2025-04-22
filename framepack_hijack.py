@@ -26,7 +26,7 @@ def set_progress_bar_config():
     uni_pc_fm.sample_unipc = sample_unipc
 
 
-def set_prompt_template(system_prompt:str=None):
+def set_prompt_template(prompt, system_prompt:str=None):
     from modules import shared
     from diffusers_helper import hunyuan
     if system_prompt is None or len(system_prompt) == 0:
@@ -39,21 +39,15 @@ def set_prompt_template(system_prompt:str=None):
             "5. background environment, light, style, atmosphere\n"
         )
     # system_prompt = DEFAULT_PROMPT_TEMPLATE["template"]
-    inputs = shared.sd_model.tokenizer(
-        system_prompt,
-        max_length=256,
-        truncation=True,
-        return_tensors="pt",
-        return_length=True,
-        return_overflowing_tokens=False,
-        return_attention_mask=False,
-    )
-    token_count = inputs['length'].item() - int(shared.sd_model.tokenizer.bos_token_id is not None) - int(shared.sd_model.tokenizer.eos_token_id is not None)
+    inputs = shared.sd_model.tokenizer(system_prompt, max_length=256, truncation=True, return_tensors="pt", return_length=True, return_overflowing_tokens=False, return_attention_mask=False)
+    tokens_system = inputs['length'].item() - int(shared.sd_model.tokenizer.bos_token_id is not None) - int(shared.sd_model.tokenizer.eos_token_id is not None)
+    inputs = shared.sd_model.tokenizer(prompt, max_length=256, truncation=True, return_tensors="pt", return_length=True, return_overflowing_tokens=False, return_attention_mask=False)
+    tokens_user = inputs['length'].item() - int(shared.sd_model.tokenizer.bos_token_id is not None) - int(shared.sd_model.tokenizer.eos_token_id is not None)
     hunyuan.DEFAULT_PROMPT_TEMPLATE = {
         "template": (
             f"<|start_header_id|>system<|end_header_id|>{system_prompt}\n<|eot_id|>"
             "<|start_header_id|>user<|end_header_id|>{}<|eot_id|>"
         ),
-        "crop_start": token_count,
+        "crop_start": tokens_system,
     }
-    shared.log.debug(f'FramePack prepare: system={token_count}')
+    shared.log.debug(f'FramePack prompt: system={tokens_system} user={tokens_user}')

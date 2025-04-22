@@ -3,11 +3,11 @@ import sys
 import random
 import threading
 import gradio as gr
+from modules import shared, processing, timer, paths, script_callbacks, extra_networks, progress, ui_sections, ui_common, generation_parameters_copypaste
 import framepack_install
 import framepack_load
 import framepack_worker
 import framepack_hijack
-from modules import shared, processing, timer, paths, script_callbacks, extra_networks, progress, ui_sections, ui_common, generation_parameters_copypaste
 
 
 tmp_dir = os.path.join(paths.data_path, 'tmp', 'framepack')
@@ -79,7 +79,7 @@ def prepare_prompt(p, system_prompt):
     p.prompts, p.network_data = extra_networks.parse_prompts([p.prompt])
     p.prompt = p.prompts[0]
     extra_networks.activate(p)
-    framepack_hijack.set_prompt_template(system_prompt)
+    framepack_hijack.set_prompt_template(p.prompt, system_prompt)
 
 
 def load_model(attention):
