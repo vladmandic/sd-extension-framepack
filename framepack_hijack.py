@@ -1,3 +1,15 @@
+DEFAULT_PROMPT_TEMPLATE = { # hunyuanvideo reference prompt template
+    "template": (
+        "<|start_header_id|>system<|end_header_id|>\n\nDescribe the video by detailing the following aspects: "
+        "1. The main content and theme of the video."
+        "2. The color, shape, size, texture, quantity, text, and spatial relationships of the objects."
+        "3. Actions, events, behaviors temporal relationships, physical movement changes of the objects."
+        "4. background environment, light, style and atmosphere."
+        "5. camera angles, movements, and transitions used in the video:<|eot_id|>"
+        "<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>"
+    ),
+    "crop_start": 95,
+}
 
 
 def set_progress_bar_config():
@@ -15,26 +27,33 @@ def set_progress_bar_config():
 
 
 def set_prompt_template(system_prompt:str=None):
+    from modules import shared
     from diffusers_helper import hunyuan
     if system_prompt is None or len(system_prompt) == 0:
-        hunyuan.DEFAULT_PROMPT_TEMPLATE = {
-            "template": (
-                "<|start_header_id|>system<|end_header_id|>\nDescribe the video by detailing the following aspects: \n"
-                "1. main content and theme of the video\n"
-                "2. color, shape, size, quantity, text, and spatial relationships of the objects\n"
-                "3. actions, events, behaviors, temporal relationships, physical movement, and changes of the objects\n"
-                "4. background environment, light, style, atmosphere\n"
-                "5. camera angles, movements, transitions used in the video\n<|eot_id|>"
-                "<|start_header_id|>user<|end_header_id|>{}<|eot_id|>"
-            ),
-            "crop_start": 93,
-        }
-    else: # TODO framepack: custom prompt template and calculate crop_start from tokenizer
-        hunyuan.DEFAULT_PROMPT_TEMPLATE = {
-            "template": (
-                f"<|start_header_id|>system<|end_header_id|>\n{system_prompt}\n"
-                "<|eot_id|>"
-                "<|start_header_id|>user<|end_header_id|>{}<|eot_id|>"
-            ),
-            "crop_start": 0,
-        }
+        system_prompt = (
+            "Describe the video by detailing the following aspects: \n"
+            "1. main content and theme of the video\n"
+            "2. actions, events, behaviors, temporal relationships, physical movement, and changes of the objects\n"
+            "3. camera angles, movements, transitions used in the video\n"
+            "4. color, shape, size, quantity, text, and spatial relationships of the objects\n"
+            "5. background environment, light, style, atmosphere\n"
+        )
+    # system_prompt = DEFAULT_PROMPT_TEMPLATE["template"]
+    inputs = shared.sd_model.tokenizer(
+        system_prompt,
+        max_length=256,
+        truncation=True,
+        return_tensors="pt",
+        return_length=True,
+        return_overflowing_tokens=False,
+        return_attention_mask=False,
+    )
+    token_count = inputs['length'].item() - int(shared.sd_model.tokenizer.bos_token_id is not None) - int(shared.sd_model.tokenizer.eos_token_id is not None)
+    hunyuan.DEFAULT_PROMPT_TEMPLATE = {
+        "template": (
+            f"<|start_header_id|>system<|end_header_id|>{system_prompt}\n<|eot_id|>"
+            "<|start_header_id|>user<|end_header_id|>{}<|eot_id|>"
+        ),
+        "crop_start": token_count,
+    }
+    shared.log.debug(f'FramePack prepare: system={token_count}')

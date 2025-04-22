@@ -1,0 +1,23 @@
+exclude = [
+  ".git",
+  ".ruff_cache",
+  "venv",
+  "framepack"
+  ]
+
+line-length = 250
+indent-width = 4
+target-version = "py39"
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = false
+
+[lint.mccabe]
+max-complexity = 150

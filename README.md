@@ -2,7 +2,9 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- *i2v & flf2v support, complex actions with multi-prompts, quantization support, new offloading, more configuration options, cross-platform, multiple video codecs, frame interpolation*  
+- *i2v & flf2v support, complex actions with multi-prompts*,  
+- *multiple video codecs, raw export, frame export, frame interpolation,*  
+- *quantization support, new offloading, more configuration options, cross-platform...*  
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension,  
@@ -55,6 +57,7 @@ Clone repository into SD.Next `/extensions` folder
   *Note*: hardware-accelerated codecs (e.g. `hevc_nvenc`) will be at the top of the list  
 - Video encoding can be very memory intensive depending on codec and number of frames  
   Use hardware-accelerated codecs whenever possible  
+- Video encoding can be skipped by setting codec to `none`
 - Video can optionally have additional interpolated frames added  
   For example, if you render 10sec 30fps video with 0 interpolated frames,  
   its 300 frames that need to be generated  
@@ -63,6 +66,17 @@ Clone repository into SD.Next `/extensions` folder
 - Set path in *settings -> image paths -> video*  
 - If *settings -> image options -> keep incomplete images* is enabled, the video will be created even if interrupted  
 - Does not create intermediate video or image files  
+- Optional save raw video frames as `safetensors` file so they can be processed later  
+
+### CLI
+
+> `python framepack_cli.py`
+
+Allows to:  
+- Export frames from `safetensors` file as individual images  
+  Those can be used for further processing or to manually create video using `ffmpeg` from-image-sequence  
+- Encode frames from `safetensors` file into video using `cv2`  
+- Encode frames from `safetensors` file into video using `torchvision/ffmpeg`  
 
 ### Other Internals
 

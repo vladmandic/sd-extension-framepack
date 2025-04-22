@@ -46,7 +46,7 @@ def get_codecs():
     #     shared.log.trace(f'codec={c.name} cname="{c.canonical_name}" decs="{c.long_name}" intra={c.intra_only} lossy={c.lossy} lossless={c.lossless} capabilities={c.capabilities} hw=True')
     # for c in sw_codecs:
     #     shared.log.trace(f'codec={c.name} cname="{c.canonical_name}" decs="{c.long_name}" intra={c.intra_only} lossy={c.lossy} lossless={c.lossless} capabilities={c.capabilities} hw=False')
-    return [c.name for c in hw_codecs + sw_codecs]
+    return ['none'] + [c.name for c in hw_codecs + sw_codecs]
 
 
 def prepare_image(image, resolution):
@@ -72,13 +72,14 @@ def prepare_image(image, resolution):
     return image
 
 
-def prepare_prompt(p):
+def prepare_prompt(p, system_prompt):
     p.prompt = shared.prompt_styles.apply_styles_to_prompt(p.prompt, p.styles)
     p.negative_prompt = shared.prompt_styles.apply_negative_styles_to_prompt(p.negative_prompt, p.styles)
     shared.prompt_styles.apply_styles_to_extra(p)
     p.prompts, p.network_data = extra_networks.parse_prompts([p.prompt])
     p.prompt = p.prompts[0]
     extra_networks.activate(p)
+    framepack_hijack.set_prompt_template(system_prompt)
 
 
 def load_model(attention):
@@ -89,7 +90,6 @@ def load_model(attention):
         framepack_install.git_update(git_dir=git_dir, git_commit=git_commit)
         sys.path.append(git_dir)
         framepack_hijack.set_progress_bar_config()
-        framepack_hijack.set_prompt_template()
         yield gr.update(), gr.update(), 'Model loading...', ''
         loaded = framepack_load.load_model()
         if loaded:
@@ -104,7 +104,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate, attention):
+def run_framepack(task_id, init_image, end_image, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention):
     if init_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
@@ -127,7 +127,8 @@ def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negati
 
         if seed is None or seed == '' or seed == -1:
             random.seed()
-            seed = int(random.randrange(4294967294))
+            seed = random.randrange(4294967294)
+        seed = int(seed)
         mode = 'i2v' if end_image is None else 'flf2v'
         num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration))
         num_frames = (latent_ws * 4 - 3) * num_sections + 1
@@ -146,7 +147,7 @@ def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negati
             width=w,
             height=h,
         )
-        prepare_prompt(p)
+        prepare_prompt(p, system_prompt)
 
         async_run(
             framepack_worker.worker,
@@ -155,7 +156,7 @@ def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negati
             p.prompt,
             section_prompt,
             p.negative_prompt,
-            p.seed,
+            seed,
             duration,
             latent_ws,
             p.steps,
@@ -166,6 +167,9 @@ def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negati
             use_teacache,
             mp4_fps,
             mp4_codec,
+            mp4_sf,
+            mp4_video,
+            mp4_frames,
             mp4_opt,
             mp4_ext,
             mp4_interpolate,
@@ -223,12 +227,16 @@ def create_ui():
                     section_html = gr.HTML(show_label=False, elem_id="framepack_section_html")
                 with gr.Row():
                     section_prompt = gr.Textbox(label="Section prompts", elem_id="framepack_section_prompt", lines=2, placeholder="Optional one-line prompt suffix per each video section", interactive=True)
-                with gr.Accordion(label="Video codec", open=False):
+                with gr.Accordion(label="Video", open=False):
                     with gr.Row():
-                        mp4_codec = gr.Dropdown(label="Codec", choices=['libx264'], value='libx264', type='value')
+                        mp4_codec = gr.Dropdown(label="Codec", choices=['none', 'libx264'], value='libx264', type='value')
                         ui_common.create_refresh_button(mp4_codec, get_codecs)
                         mp4_ext = gr.Textbox(label="Format", value='mp4', elem_id="framepack_mp4_ext")
                         mp4_opt = gr.Textbox(label="Options", value='crf:16', elem_id="framepack_mp4_ext")
+                    with gr.Row():
+                        mp4_video = gr.Checkbox(label='Save Video', value=True, elem_id="framepack_mp4_video")
+                        mp4_frames = gr.Checkbox(label='Save Frames', value=False, elem_id="framepack_mp4_frames")
+                        mp4_sf = gr.Checkbox(label='Save SafeTensors', value=False, elem_id="framepack_mp4_sf")
                 with gr.Accordion(label="Advanced", open=False):
                     seed = ui_sections.create_seed_inputs('control', reuse_visible=False, subseed_visible=False, accordion=False)[0]
                     latent_ws = gr.Slider(label="Latent window size", minimum=1, maximum=33, value=9, step=1)
@@ -242,6 +250,8 @@ def create_ui():
                 with gr.Accordion(label="Processing", open=False):
                     use_teacache = gr.Checkbox(label='Enable TeaCache', value=True)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
+                with gr.Accordion(label="System prompt", open=False):
+                    system_prompt = gr.Textbox(label="System prompt", elem_id="framepack_system_prompt", lines=6, placeholder="Optional system prompt for the model", interactive=True)
                 override_settings = ui_common.create_override_inputs('framepack')
 
             with gr.Column():
@@ -267,6 +277,7 @@ def create_ui():
                         input_image,
                         end_image,
                         prompt,
+                        system_prompt,
                         section_prompt,
                         negative,
                         styles,
@@ -280,6 +291,9 @@ def create_ui():
                         use_teacache,
                         mp4_fps,
                         mp4_codec,
+                        mp4_sf,
+                        mp4_video,
+                        mp4_frames,
                         mp4_opt,
                         mp4_ext,
                         mp4_interpolate,
