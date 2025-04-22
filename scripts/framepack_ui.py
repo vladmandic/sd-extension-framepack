@@ -7,7 +7,7 @@ import framepack_install
 import framepack_load
 import framepack_worker
 import framepack_hijack
-from modules import shared, processing, paths, script_callbacks, extra_networks, progress, ui_sections, ui_common, generation_parameters_copypaste
+from modules import shared, processing, timer, paths, script_callbacks, extra_networks, progress, ui_sections, ui_common, generation_parameters_copypaste
 
 
 tmp_dir = os.path.join(paths.data_path, 'tmp', 'framepack')
@@ -17,11 +17,18 @@ git_commit = '743657ef2355920fb2f1f934a34647ccd0f916c7'
 queue_lock = threading.Lock()
 
 
-def get_codecs():
+def check_av():
     try:
         import av
     except Exception as e:
         shared.log.error(f'av package: {e}')
+        return False
+    return av
+
+
+def get_codecs():
+    av = check_av()
+    if av is None:
         return []
     codecs = []
     for codec in av.codecs_available:
@@ -43,26 +50,12 @@ def get_codecs():
 
 
 def prepare_image(image, resolution):
-    buckets = [
-        (416, 960),
-        (448, 864),
-        (480, 832),
-        (512, 768),
-        (544, 704),
-        (576, 672),
-        (608, 640),
-        (640, 608),
-        (672, 576),
-        (704, 544),
-        (768, 512),
-        (832, 480),
-        (864, 448),
-        (960, 416),
-    ]
-
     from diffusers_helper.utils import resize_and_center_crop
+    buckets = [
+        (416, 960), (448, 864), (480, 832), (512, 768), (544, 704), (576, 672), (608, 640),
+        (640, 608), (672, 576), (704, 544), (768, 512), (832, 480), (864, 448), (960, 416),
+    ]
     h, w, _c = image.shape
-
     min_metric = float('inf')
     scale_factor = resolution / 640.0
     scaled_h, scaled_w = h, w
@@ -75,7 +68,7 @@ def prepare_image(image, resolution):
 
     image = resize_and_center_crop(image, target_height=scaled_h, target_width=scaled_w)
     h0, w0, _c = image.shape
-    shared.log.debug(f'FramePack: input="{w}x{h}" resized="{w0}x{h0}" resolution={resolution} scale={scale_factor}')
+    shared.log.debug(f'FramePack prepare: input="{w}x{h}" resized="{w0}x{h0}" resolution={resolution} scale={scale_factor}')
     return image
 
 
@@ -95,7 +88,7 @@ def load_model(attention):
         framepack_install.git_clone(git_repo=git_repo, git_dir=git_dir, tmp_dir=tmp_dir)
         framepack_install.git_update(git_dir=git_dir, git_commit=git_commit)
         sys.path.append(git_dir)
-        framepack_hijack.set_progress_bar_config(bar_format='Progress {rate_fmt}{postfix} {bar} {percentage:3.0f}% {n_fmt}/{total_fmt} {elapsed} {remaining} ' + '\x1b[38;5;71m', ncols=80, colour='#327fba')
+        framepack_hijack.set_progress_bar_config()
         framepack_hijack.set_prompt_template()
         yield gr.update(), gr.update(), 'Model loading...', ''
         loaded = framepack_load.load_model()
@@ -115,6 +108,9 @@ def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negati
     if init_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
+    av = check_av()
+    if av is None:
+        return gr.update(), gr.update(), 'AV package not installed'
 
     progress.add_task_to_queue(task_id)
     with queue_lock:
@@ -133,7 +129,9 @@ def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negati
             random.seed()
             seed = int(random.randrange(4294967294))
         mode = 'i2v' if end_image is None else 'flf2v'
-        shared.log.info(f'FramePack start: {task_id} mode={mode} resolution="{resolution}" seed={seed} duration={duration} teacache={use_teacache} fps={mp4_fps} codec={mp4_codec} ext="{mp4_ext}" options="{mp4_opt}"')
+        num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration))
+        num_frames = (latent_ws * 4 - 3) * num_sections + 1
+        shared.log.info(f'FramePack start: mode={mode} frames={num_frames} sections={num_sections} resolution={resolution} seed={seed} duration={duration} teacache={use_teacache}')
         init_image = prepare_image(init_image, resolution)
         if end_image is not None:
             end_image = prepare_image(end_image, resolution)
@@ -180,8 +178,11 @@ def run_framepack(task_id, init_image, end_image, prompt, section_prompt, negati
                 output_filename = data
                 yield output_filename, gr.update(), gr.update()
             if flag == 'progress':
-                preview, desc = data
-                yield gr.update(), gr.update(value=preview), desc
+                preview, text = data
+                summary = timer.process.summary(min_time=0.25, total=False).replace('=', ' ')
+                memory = shared.mem_mon.summary()
+                stats = f"<div class='performance'><p>{summary} {memory}</p></div>"
+                yield gr.update(), gr.update(value=preview), f'{text} {stats}'
             if flag == 'end':
                 yield output_filename, gr.update(value=None), gr.update()
                 break

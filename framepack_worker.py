@@ -4,6 +4,7 @@ import datetime
 import torch
 import torchvision
 import einops
+import rich.progress as rp
 import framepack_vae
 from modules import shared, errors ,devices, sd_models, timer, memstats, rife
 
@@ -15,6 +16,9 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
     if pixels is None:
         return 0
     t_save = time.time()
+    n, _c, t, h, w = pixels.shape
+    size = pixels.element_size() * pixels.numel()
+    shared.log.debug(f'FramePack video: encode={t} raw={size} latent={pixels.shape} fps={mp4_fps} codec={mp4_codec} ext={mp4_ext} options="{mp4_opt}"')
     try:
         stream.output_queue.push(('progress', (None, 'Saving video...')))
         if mp4_interpolate > 0:
@@ -42,14 +46,13 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
 
         torchvision.io.write_video(output_filename, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
         timer.process.add('save', time.time()-t_save)
-        shared.log.info(f'FramePack video: file="{output_filename}" codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
+        shared.log.info(f'FramePack video: file="{output_filename}" raw={size} codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
         stream.output_queue.push(('progress', (None, f'Video {os.path.basename(output_filename)} | Codec {mp4_codec} | Size {w}x{h}x{t} | FPS {mp4_fps}')))
         stream.output_queue.push(('file', output_filename))
-        return t
     except Exception as e:
-        shared.log.error(f'FramePack video: {e}')
+        shared.log.error(f'FramePack video: raw={size} {e}')
         errors.display(e, 'FramePack video')
-        return 0
+    return t
 
 
 def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length):
@@ -95,10 +98,14 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
     image_encoder = shared.sd_model.image_processor
     transformer = shared.sd_model.transformer
     sd_models.apply_balanced_offload(shared.sd_model)
+    pbar = rp.Progress(rp.TextColumn('[cyan]Video'), rp.BarColumn(), rp.MofNCompleteColumn(), rp.TaskProgressColumn(), rp.TimeRemainingColumn(), rp.TimeElapsedColumn(), rp.TextColumn('[cyan]{task.description}'), console=shared.console)
+    task = pbar.add_task('starting', total=steps * len(latent_paddings))
+    t_last = time.time()
 
-    def text_encode(prompt):
+    def text_encode(prompt, i:int=None):
+        pbar.update(task, description=f'text encode secttion={i}')
         t0 = time.time()
-        shared.log.debug(f'FramePack: prompt="{prompt}"')
+        # shared.log.debug(f'FramePack: section={i} prompt="{prompt}"')
         shared.state.textinfo = 'Text encode'
         stream.output_queue.push(('progress', (None, 'Text encoding...')))
         sd_models.apply_balanced_offload(shared.sd_model)
@@ -115,6 +122,8 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
         return llama_vec, llama_vec_n, llama_attention_mask, llama_attention_mask_n, clip_l_pooler, clip_l_pooler_n
 
     def vae_encode(input_image, end_image):
+        pbar.update(task, description='image encode')
+        # shared.log.debug(f'FramePack: image encode init={input_image.shape} end={end_image.shape if end_image is not None else None}')
         t0 = time.time()
         stream.output_queue.push(('progress', (None, 'VAE encoding...')))
         sd_models.apply_balanced_offload(shared.sd_model)
@@ -132,6 +141,8 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
         return start_latent, end_latent
 
     def vision_encode(input_image, end_image):
+        pbar.update(task, description='vision encode')
+        # shared.log.debug(f'FramePack: vision encode init={input_image.shape} end={end_image.shape if end_image is not None else None}')
         t0 = time.time()
         shared.state.textinfo = 'Vision encode'
         stream.output_queue.push(('progress', (None, 'Vision encoding...')))
@@ -150,6 +161,7 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
         return image_encoder_last_hidden_state
 
     def step_callback(d):
+        t_current = time.time()
         if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
             stream.output_queue.push(('progress', (None, 'Interrupted...')))
             stream.output_queue.push(('end', None))
@@ -160,7 +172,7 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
                 if shared.state.interrupted or shared.state.skipped:
                     raise AssertionError('Interrupted...')
                 time.sleep(0.1)
-        nonlocal total_generated_frames
+        nonlocal total_generated_frames, t_last
         t_preview = time.time()
         preview = framepack_vae.vae_decode_simple(d['denoised'])
         current_step = d['i'] + 1
@@ -169,13 +181,15 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
         shared.state.sampling_steps = steps * len(latent_paddings)
         progress = shared.state.sampling_step / shared.state.sampling_steps
         total_generated_frames = int(max(0, total_generated_latent_frames * 4 - 3))
+        pbar.update(task, advance=1, description=f'its={1/(t_current-t_last):.2f} sample={d["i"]+1}/{steps} section={lattent_padding_loop}/{len(latent_paddings)} frames={total_generated_frames}/{num_frames*len(latent_paddings)}')
         desc = f'Step {shared.state.sampling_step}/{shared.state.sampling_steps} | Current {current_step}/{steps} | Section {lattent_padding_loop}/{len(latent_paddings)} | Progress {progress:.2%}'
         stream.output_queue.push(('progress', (preview, desc)))
         timer.process.add('preview', time.time()-t_preview)
+        t_last = t_current
         return
 
-    with devices.inference_context():
-        try:
+    try:
+        with devices.inference_context(), pbar:
             t0 = time.time()
 
             height, width, _C = input_image.shape
@@ -195,11 +209,11 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
             for latent_padding in latent_paddings:
                 current_prompt = prompt + ' ' + prompts[lattent_padding_loop] if len(prompts) > lattent_padding_loop else prompt
                 if current_prompt != last_prompt:
-                    llama_vec, llama_vec_n, llama_attention_mask, llama_attention_mask_n, clip_l_pooler, clip_l_pooler_n = text_encode(current_prompt)
+                    llama_vec, llama_vec_n, llama_attention_mask, llama_attention_mask_n, clip_l_pooler, clip_l_pooler_n = text_encode(current_prompt, i=lattent_padding_loop+1)
                     last_prompt = current_prompt
 
                 lattent_padding_loop += 1
-                shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{len(latent_paddings)} frames={total_generated_frames}/{num_frames*len(latent_paddings)} window={latent_window_size} size={num_frames}')
+                # shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{len(latent_paddings)} frames={total_generated_frames}/{num_frames*len(latent_paddings)} window={latent_window_size} size={num_frames}')
                 is_first_section = latent_padding == latent_paddings[0]
                 is_last_section = latent_padding == 0
                 latent_padding_size = latent_padding * latent_window_size
@@ -272,15 +286,17 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
                 timer.process.add('vae', time.time()-t_vae)
 
                 if is_last_section:
-                    total_generated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate)
                     break
-        except AssertionError:
-            shared.log.info('FramePack: interrupted')
-            if shared.opts.keep_incomplete:
-                save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate=0)
-        except Exception as e:
-            shared.log.error(f'FramePack: {e}')
-            errors.display(e, 'FramePack')
+        total_generated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate)
+
+    except AssertionError:
+        shared.log.info('FramePack: interrupted')
+        if shared.opts.keep_incomplete:
+            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_interpolate=0)
+    except Exception as e:
+        shared.log.error(f'FramePack: {e}')
+        errors.display(e, 'FramePack')
+
 
     sd_models.apply_balanced_offload(shared.sd_model)
     stream.output_queue.push(('end', None))

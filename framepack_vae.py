@@ -33,7 +33,7 @@ def vae_decode_simple(latents):
             vae_weight = torch.tensor(latent_rgb_factors, device=devices.device, dtype=devices.dtype).transpose(0, 1)[:, :, None, None, None]
             vae_bias = torch.tensor(latent_rgb_factors_bias, device=devices.device, dtype=devices.dtype)
         images = torch.nn.functional.conv3d(latents.to(devices.dtype), weight=vae_weight, bias=vae_bias, stride=1, padding=0, dilation=1, groups=1)
-        images = (images + 1.1) * 110 # sort-of normalized
+        images = (images + 1.2) * 100 # sort-of normalized
         images = einops.rearrange(images, 'b c t h w -> (b h) (t w) c')
         images = images.to(torch.uint8).detach().cpu().numpy().clip(0, 255)
     return images

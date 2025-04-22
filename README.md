@@ -40,18 +40,21 @@ Clone repository into SD.Next `/extensions` folder
 - Add support for **LLM** and **DiT/Video** modules on-the-fly quantization **quantization**  
   Only available when using native offloading, configure as usual in *settings -> quantization*  
 - Add support for post-load quantization such as **NNCF**  
-- Configurable resolution, frame-rate
+- Configurable resolution, frame-rate  
 - Configurable video codec and codec options  
-  Includes both hardware-accelerated codecs (e.g. `hevc_nvenc`) and software codecs (e.g. `libx264`)
+  Includes both hardware-accelerated codecs (e.g. `hevc_nvenc`) and software codecs (e.g. `libx264`)  
+- Better preview quality  
 - Expose advanced options: *recommended not to change*  
 - Model download & load on-demand  
 - Configurable torch cross-attention  
 
 ### Video
 
-- Video is encoded using selected codec and codec options    
+- Video is encoded using selected codec and codec options  
   Default codec is `libx264`, to see codecs available on your system, use refresh  
   *Note*: hardware-accelerated codecs (e.g. `hevc_nvenc`) will be at the top of the list  
+- Video encoding can be very memory intensive depending on codec and number of frames  
+  Use hardware-accelerated codecs whenever possible  
 - Video can optionally have additional interpolated frames added  
   For example, if you render 10sec 30fps video with 0 interpolated frames,  
   its 300 frames that need to be generated  
@@ -61,7 +64,7 @@ Clone repository into SD.Next `/extensions` folder
 - If *settings -> image options -> keep incomplete images* is enabled, the video will be created even if interrupted  
 - Does not create intermediate video or image files  
 
-### Internals  
+### Other Internals
 
 - Refactored main loop  
 - Removed hardcoded device mappings  
@@ -76,6 +79,7 @@ Clone repository into SD.Next `/extensions` folder
 
 - CFGzero
 - LoRA support
+- Custom system prompt
 - Frame upscaling
 - Full codebase integration
 - API
