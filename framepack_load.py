@@ -1,3 +1,4 @@
+import time
 from modules import shared, devices, errors, sd_models, model_quant
 
 
@@ -50,6 +51,7 @@ def load_model():
                 )
 
         sd_models.unload_model_weights()
+        t0 = time.time()
 
         shared.log.debug(f'FramePack load: module=llm repo="{repo_hunyuan}"')
         load_args, quant_args = model_quant.get_dit_args({}, module='LLM', device_map=True)
@@ -102,9 +104,10 @@ def load_model():
         )
 
         shared.sd_model = model_quant.do_post_load_quant(shared.sd_model)
+        t1 = time.time()
 
         diffusers.loaders.peft._SET_ADAPTER_SCALE_FN_MAPPING['HunyuanVideoTransformer3DModelPacked'] = lambda model_cls, weights: weights # pylint: disable=protected-access
-        shared.log.info(f'FramePack load: model={shared.sd_model.__class__.__name__} type={shared.sd_model_type}')
+        shared.log.info(f'FramePack load: model={shared.sd_model.__class__.__name__} type={shared.sd_model_type} time={t1-t0:.2f}')
         sd_models.apply_balanced_offload(shared.sd_model)
         devices.torch_gc(force=True)
 

@@ -19,6 +19,7 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
     t_save = time.time()
     n, _c, t, h, w = pixels.shape
     size = pixels.element_size() * pixels.numel()
+    shared.log.debug(f'FramePack video: video={mp4_video} export={mp4_frames} safetensors={mp4_sf} interpolate={mp4_interpolate}')
     shared.log.debug(f'FramePack video: encode={t} raw={size} latent={pixels.shape} fps={mp4_fps} codec={mp4_codec} ext={mp4_ext} options="{mp4_opt}"')
     try:
         stream.output_queue.push(('progress', (None, 'Saving video...')))
@@ -50,7 +51,7 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
                 fn = f'{output_filename}-{i:05d}.jpg'
                 cv2.imwrite(fn, image)
 
-        if mp4_codec != 'none' and mp4_video:
+        if mp4_video and (mp4_codec != 'none'):
             output_filename = f'{output_filename}.{mp4_ext}'
             options = {}
             for option in [option.strip() for option in mp4_opt.split(',')]:
@@ -65,6 +66,8 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
             torchvision.io.write_video(output_filename, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
             stream.output_queue.push(('progress', (None, f'Video {os.path.basename(output_filename)} | Codec {mp4_codec} | Size {w}x{h}x{t} | FPS {mp4_fps}')))
             stream.output_queue.push(('file', output_filename))
+        else:
+            stream.output_queue.push(('progress', (None, '')))
 
     except Exception as e:
         shared.log.error(f'FramePack video: raw={size} {e}')
@@ -305,12 +308,12 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
 
                 if is_last_section:
                     break
-        total_generated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_frames, mp4_video, mp4_interpolate)
+        total_generated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_video, mp4_frames, mp4_interpolate)
 
     except AssertionError:
         shared.log.info('FramePack: interrupted')
         if shared.opts.keep_incomplete:
-            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_frames, mp4_video, mp4_interpolate=0)
+            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_video, mp4_frames, mp4_interpolate=0)
     except Exception as e:
         shared.log.error(f'FramePack: {e}')
         errors.display(e, 'FramePack')
