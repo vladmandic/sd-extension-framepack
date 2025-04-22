@@ -225,7 +225,7 @@ def create_ui():
                     mp4_interpolate = gr.Slider(label="Interpolation", minimum=0, maximum=10, value=0, step=1)
                 with gr.Row():
                     section_html = gr.HTML(show_label=False, elem_id="framepack_section_html")
-                with gr.Row():
+                with gr.Accordion(label="Sections", open=False):
                     section_prompt = gr.Textbox(label="Section prompts", elem_id="framepack_section_prompt", lines=2, placeholder="Optional one-line prompt suffix per each video section", interactive=True)
                 with gr.Accordion(label="Video", open=False):
                     with gr.Row():
