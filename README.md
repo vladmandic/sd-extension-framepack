@@ -2,10 +2,11 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- *i2v & flf2v support, complex actions with multi-prompts*,  
-- *custom models: replace llama with one of your choice",  
-- *multiple video codecs, raw export, frame export, frame interpolation,*  
-- *quantization support, new offloading, more configuration options, cross-platform...*  
+- I2V & FLF2V support
+- Complex actions with multi-prompts  
+- Custom models: replace llama with one of your choice  
+- Multiple video codecs, raw export, frame export, frame interpolation  
+- Quantization support, new offloading, more configuration options, cross-platform
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension,  
@@ -78,7 +79,6 @@ For example, changing original **llama** to different one can be done with:
     text_encoder: Kijai/llava-llama-3-8b-text-encoder-tokenizer/
     tokenizer: Kijai/llava-llama-3-8b-text-encoder-tokenizer/
 ```
-
 
 ### CLI
 
