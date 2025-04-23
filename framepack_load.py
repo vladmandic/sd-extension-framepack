@@ -139,7 +139,6 @@ def load_model(pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None
 
         shared.log.debug(f'FramePack load: module=encoder {model["feature_extractor"]} model={model["image_encoder"]}')
         feature_extractor = SiglipImageProcessor.from_pretrained(model["feature_extractor"]["repo"], subfolder=model["feature_extractor"]["subfolder"], cache_dir=shared.opts.hfcache_dir)
-        print('HERE', model["image_encoder"]["repo"], model["image_encoder"]["subfolder"])
         image_encoder = SiglipVisionModel.from_pretrained(model["image_encoder"]["repo"], subfolder=model["image_encoder"]["subfolder"], torch_dtype=devices.dtype, cache_dir=shared.opts.hfcache_dir)
         image_encoder.requires_grad_(False)
         image_encoder.eval()
