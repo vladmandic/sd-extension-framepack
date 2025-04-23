@@ -5,7 +5,7 @@ from installer import install, git
 from modules.shared import log
 
 
-def rename(src, dst):
+def rename(src:str, dst:str):
     import errno
     try:
         os.rename(src, dst)
@@ -16,7 +16,7 @@ def rename(src, dst):
             raise e
 
 
-def install_requirements(attention):
+def install_requirements(attention:str='SDPA'):
     install('av')
     if attention == 'Xformers':
         log.debug('FramePack install: xformers')
@@ -29,7 +29,7 @@ def install_requirements(attention):
         install('sageattention')
 
 
-def git_clone(git_repo, git_dir, tmp_dir):
+def git_clone(git_repo:str, git_dir:str, tmp_dir:str):
     if os.path.exists(git_dir):
         return
     try:
@@ -55,7 +55,7 @@ def git_clone(git_repo, git_dir, tmp_dir):
     shutil.rmtree(tmp_dir, True)
 
 
-def git_update(git_dir, git_commit):
+def git_update(git_dir:str, git_commit:str):
     if not os.path.exists(git_dir):
         return
     try:

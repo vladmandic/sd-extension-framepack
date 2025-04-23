@@ -1,5 +1,6 @@
 # defaults
 __pycache__
+.env
 .ruff_cache
 venv
 /framepack

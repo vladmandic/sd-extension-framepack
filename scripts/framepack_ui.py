@@ -204,7 +204,7 @@ def process_end():
 def change_sections(duration, mp4_fps, mp4_interpolate, latent_ws):
     num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration))
     num_frames = (latent_ws * 4 - 3) * num_sections + 1
-    return gr.update(value=f'Target video: {num_frames} frames in {num_sections} sections'), gr.update(lines=num_sections)
+    return gr.update(value=f'Target video: {num_frames} frames in {num_sections} sections'), gr.update(lines=max(2, 2*num_sections//3))
 
 
 def create_ui():
@@ -215,9 +215,6 @@ def create_ui():
                 with gr.Row():
                     input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
                     end_image = gr.Image(sources='upload', type="numpy", label="End image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
-                with gr.Row():
-                    btn_load = gr.Button(value="Load model", elem_id="framepack_btn_load", interactive=True)
-                    btn_unload = gr.Button(value="Unload model", elem_id="framepack_btn_unload", interactive=True)
                 with gr.Row():
                     resolution = gr.Slider(label="Resolution", minimum=240, maximum=1040, value=640, step=16)
                     duration = gr.Slider(label="Duration", minimum=1, maximum=120, value=4, step=0.1)
@@ -247,7 +244,16 @@ def create_ui():
                         cfg_scale = gr.Slider(label="CFG scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01)
                         cfg_distilled = gr.Slider(label="Distilled CFG scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
                         cfg_rescale = gr.Slider(label="CFG re-scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01)
-                with gr.Accordion(label="Processing", open=False):
+                with gr.Accordion(label="Model", open=False):
+                    with gr.Row():
+                        btn_load = gr.Button(value="Load model", elem_id="framepack_btn_load", interactive=True)
+                        btn_unload = gr.Button(value="Unload model", elem_id="framepack_btn_unload", interactive=True)
+                    with gr.Row():
+                        receipe = gr.Textbox(label="Model receipe", elem_id="framepack_model_receipe", lines=6, placeholder="Model receipe", interactive=True)
+                    with gr.Row():
+                        receipe_get = gr.Button(value="Get receipe", elem_id="framepack_btn_get_model", interactive=True)
+                        receipe_set = gr.Button(value="Set receipe", elem_id="framepack_btn_set_model", interactive=True)
+                        receipe_reset = gr.Button(value="Reset receipe", elem_id="framepack_btn_reset_model", interactive=True)
                     use_teacache = gr.Checkbox(label='Enable TeaCache', value=True)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
                 with gr.Accordion(label="System prompt", open=False):
@@ -262,14 +268,18 @@ def create_ui():
                         preview_image = gr.Image(label="Current", height=512, show_label=False, elem_id="framepack_preview_image")
                 progress_desc = gr.HTML('', show_label=False, elem_id="framepack_progress_desc")
 
+            task_id = gr.Textbox(visible=False, value='')
+            outputs = [result_video, preview_image, progress_desc]
+
             duration.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
             mp4_fps.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
             mp4_interpolate.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
-
-            outputs = [result_video, preview_image, progress_desc]
             btn_load.click(fn=load_model, inputs=[attention], outputs=outputs)
             btn_unload.click(fn=unload_model, outputs=outputs)
-            task_id = gr.Textbox(visible=False, value='')
+            receipe_get.click(fn=framepack_load.get_model, inputs=[], outputs=receipe)
+            receipe_set.click(fn=framepack_load.set_model, inputs=[receipe], outputs=[])
+            receipe_reset.click(fn=framepack_load.reset_model, inputs=[], outputs=[receipe])
+
             generate.click(
                 fn=run_framepack,
                 _js="submit_framepack",

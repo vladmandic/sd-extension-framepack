@@ -3,6 +3,7 @@
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
 - *i2v & flf2v support, complex actions with multi-prompts*,  
+- *custom models: replace llama with one of your choice",  
 - *multiple video codecs, raw export, frame export, frame interpolation,*  
 - *quantization support, new offloading, more configuration options, cross-platform...*  
 
@@ -67,6 +68,17 @@ Clone repository into SD.Next `/extensions` folder
 - If *settings -> image options -> keep incomplete images* is enabled, the video will be created even if interrupted  
 - Does not create intermediate video or image files  
 - Optional save raw video frames as `safetensors` file so they can be processed later  
+
+### Receipe
+
+You can get current receipe to see which modules would be loaded and change them if desired  
+For example, changing original **llama** to different one can be done with:  
+
+```log
+    text_encoder: Kijai/llava-llama-3-8b-text-encoder-tokenizer/
+    tokenizer: Kijai/llava-llama-3-8b-text-encoder-tokenizer/
+```
+
 
 ### CLI
 
