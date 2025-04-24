@@ -89,7 +89,7 @@ def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_seco
     return latent_paddings
 
 
-def worker(input_image, end_image, start_weight, end_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate):
+def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -149,9 +149,14 @@ def worker(input_image, end_image, start_weight, end_weight, prompt, section_pro
         stream.output_queue.push(('progress', (None, 'VAE encoding...')))
         sd_models.apply_balanced_offload(shared.sd_model)
         sd_models.move_model(vae, devices.device, force=True)
-        input_image_pt = torch.from_numpy(input_image).float() / 127.5 - 1
-        input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
-        start_latent = hunyuan.vae_encode(input_image_pt, vae)
+        if input_image is not None:
+            input_image_pt = torch.from_numpy(input_image).float() / 127.5 - 1
+            input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
+            start_latent = hunyuan.vae_encode(input_image_pt, vae)
+        if start_weight < 1:
+            torch.manual_seed(seed)
+            noise = torch.randn_like(start_latent)
+            start_latent = start_latent * start_weight + noise * (1 - start_weight)
         if end_image is not None:
             end_image_pt = torch.from_numpy(end_image).float() / 127.5 - 1
             end_image_pt = end_image_pt.permute(2, 0, 1)[None, :, None]
@@ -179,9 +184,12 @@ def worker(input_image, end_image, start_weight, end_weight, prompt, section_pro
             end_image_encoder_last_hidden_state = end_image_encoder_output.last_hidden_state
             image_encoder_last_hidden_state = (image_encoder_last_hidden_state * start_weight) + (end_image_encoder_last_hidden_state * end_weight) / (start_weight + end_weight) # use weighted approach
         timer.process.add('vision', time.time()-t0)
+        image_encoder_last_hidden_state = image_encoder_last_hidden_state * vision_weight
         return image_encoder_last_hidden_state
 
     def step_callback(d):
+        if use_cfgzero and is_first_section and d['i'] == 0:
+            d['denoised'] = d['denoised'] * 0
         t_current = time.time()
         if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
             stream.output_queue.push(('progress', (None, 'Interrupted...')))

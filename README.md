@@ -2,11 +2,12 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- I2V & FLF2V support
-- Complex actions with multi-prompts  
+- I2V & FLF2V support  
+- Complex actions: modify prompt each section of the video  
+- Strength control: for init, end and vision model  
 - Custom models: replace llama with one of your choice  
-- Multiple video codecs, raw export, frame export, frame interpolation  
-- Quantization support, new offloading, more configuration options, cross-platform
+- Video: multiple video codecs, raw export, frame export, frame interpolation  
+- Compute: Quantization support, new offloading, more configuration options, cross-platform  
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension,  
@@ -33,7 +34,12 @@ Clone repository into SD.Next `/extensions` folder
 
 - Supports both **I2V** (image-to-video) and **FLF2V** (frame-last-frame-to-video) modes  
   You can choose if you want to provide end frame or not  
-  if providing end frame, you can also provide weights for both init and end frame  
+- Strength control  
+  - init frame: controls amount of initial noise  
+    in theory, you can set init strength to 0 and use framepack almost like a t2v workflow  
+  - end frame: controls strength of end frame compared to init frame, can skew video towards init or end frame  
+  - vision: controls strength of the vision model that controls video generation  
+  if providing end frame, you can also provide strength for both init and end frame  
 - Supports resolution scaling: from 240p to 960p  
   Input image will be resized to closest aspect ratio supported by HV and scaled to desired resolution  
   *Note*: resolution is directly proportional to VRAM usage, so if you have low VRAM, use lower resolution  
@@ -106,7 +112,6 @@ Allows to:
 
 - CFGzero
 - LoRA support
-- Custom system prompt
 - Frame upscaling
 - Full codebase integration
 - API

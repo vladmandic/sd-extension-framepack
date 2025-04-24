@@ -104,7 +104,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, init_image, end_image, start_weight, end_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention):
+def run_framepack(task_id, init_image, end_image, start_weight, end_weight, vision_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention):
     if init_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
@@ -132,7 +132,7 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, prom
         mode = 'i2v' if end_image is None else 'flf2v'
         num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration))
         num_frames = (latent_ws * 4 - 3) * num_sections + 1
-        shared.log.info(f'FramePack start: mode={mode} frames={num_frames} sections={num_sections} resolution={resolution} seed={seed} duration={duration} teacache={use_teacache}')
+        shared.log.info(f'FramePack start: mode={mode} frames={num_frames} sections={num_sections} resolution={resolution} seed={seed} duration={duration} teacache={use_teacache} cfgzero={use_cfgzero}')
         init_image = prepare_image(init_image, resolution)
         if end_image is not None:
             end_image = prepare_image(end_image, resolution)
@@ -152,7 +152,7 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, prom
         async_run(
             framepack_worker.worker,
             init_image, end_image,
-            start_weight, end_weight,
+            start_weight, end_weight, vision_weight,
             p.prompt, section_prompt, p.negative_prompt,
             seed,
             duration,
@@ -160,7 +160,7 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, prom
             p.steps,
             cfg_scale, cfg_distilled, cfg_rescale,
             shift,
-            use_teacache,
+            use_teacache, use_cfgzero,
             mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
         )
 
@@ -202,14 +202,14 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 with gr.Row():
-                    with gr.Column(scale=1):
-                        input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
-                        start_weight = gr.Slider(label="Init strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_start_weight")
-                    with gr.Column(scale=1):
-                        end_image = gr.Image(sources='upload', type="numpy", label="End image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
-                        end_weight = gr.Slider(label="End strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_end_weight")
+                    input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
+                    end_image = gr.Image(sources='upload', type="numpy", label="End image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
                 with gr.Row():
-                    resolution = gr.Slider(label="Resolution", minimum=240, maximum=1040, value=640, step=16)
+                    start_weight = gr.Slider(label="Init strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_start_weight")
+                    end_weight = gr.Slider(label="End strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_end_weight")
+                    vision_weight = gr.Slider(label="Vision strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_vision_weight")
+                with gr.Row():
+                    resolution = gr.Slider(label="Resolution", minimum=240, maximum=1088, value=640, step=16)
                     duration = gr.Slider(label="Duration", minimum=1, maximum=120, value=4, step=0.1)
                     mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=20, step=1)
                     mp4_interpolate = gr.Slider(label="Interpolation", minimum=0, maximum=10, value=0, step=1)
@@ -248,6 +248,7 @@ def create_ui():
                         receipe_set = gr.Button(value="Set receipe", elem_id="framepack_btn_set_model", interactive=True)
                         receipe_reset = gr.Button(value="Reset receipe", elem_id="framepack_btn_reset_model", interactive=True)
                     use_teacache = gr.Checkbox(label='Enable TeaCache', value=True)
+                    use_cfgzero = gr.Checkbox(label='Enable CFGZero', value=False)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
                 with gr.Accordion(label="System prompt", open=False):
                     system_prompt = gr.Textbox(label="System prompt", elem_id="framepack_system_prompt", lines=6, placeholder="Optional system prompt for the model", interactive=True)
@@ -278,7 +279,7 @@ def create_ui():
                 _js="submit_framepack",
                 inputs=[task_id,
                         input_image, end_image,
-                        start_weight, end_weight,
+                        start_weight, end_weight, vision_weight,
                         prompt, system_prompt, section_prompt, negative, styles,
                         seed,
                         resolution,
@@ -287,7 +288,7 @@ def create_ui():
                         steps,
                         cfg_scale, cfg_distilled, cfg_rescale,
                         shift,
-                        use_teacache,
+                        use_teacache, use_cfgzero,
                         mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
                         attention,
                        ],
