@@ -13,7 +13,7 @@ import framepack_hijack
 tmp_dir = os.path.join(paths.data_path, 'tmp', 'framepack')
 git_dir = os.path.join(os.path.dirname(__file__), '..', 'framepack')
 git_repo = 'https://github.com/lllyasviel/framepack'
-git_commit = '743657ef2355920fb2f1f934a34647ccd0f916c7'
+git_commit = 'a875c8b58691c7ba98f93ad6623994a4e69df8ef'
 queue_lock = threading.Lock()
 
 
@@ -104,7 +104,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, init_image, end_image, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention):
+def run_framepack(task_id, init_image, end_image, start_weight, end_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention):
     if init_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
@@ -151,28 +151,17 @@ def run_framepack(task_id, init_image, end_image, prompt, system_prompt, section
 
         async_run(
             framepack_worker.worker,
-            init_image,
-            end_image,
-            p.prompt,
-            section_prompt,
-            p.negative_prompt,
+            init_image, end_image,
+            start_weight, end_weight,
+            p.prompt, section_prompt, p.negative_prompt,
             seed,
             duration,
             latent_ws,
             p.steps,
-            cfg_scale,
-            cfg_distilled,
-            cfg_rescale,
+            cfg_scale, cfg_distilled, cfg_rescale,
             shift,
             use_teacache,
-            mp4_fps,
-            mp4_codec,
-            mp4_sf,
-            mp4_video,
-            mp4_frames,
-            mp4_opt,
-            mp4_ext,
-            mp4_interpolate,
+            mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
         )
 
         output_filename = None
@@ -213,8 +202,12 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 with gr.Row():
-                    input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
-                    end_image = gr.Image(sources='upload', type="numpy", label="End image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
+                    with gr.Column(scale=1):
+                        input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
+                        start_weight = gr.Slider(label="Init strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_start_weight")
+                    with gr.Column(scale=1):
+                        end_image = gr.Image(sources='upload', type="numpy", label="End image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
+                        end_weight = gr.Slider(label="End strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_end_weight")
                 with gr.Row():
                     resolution = gr.Slider(label="Resolution", minimum=240, maximum=1040, value=640, step=16)
                     duration = gr.Slider(label="Duration", minimum=1, maximum=120, value=4, step=0.1)
@@ -284,13 +277,9 @@ def create_ui():
                 fn=run_framepack,
                 _js="submit_framepack",
                 inputs=[task_id,
-                        input_image,
-                        end_image,
-                        prompt,
-                        system_prompt,
-                        section_prompt,
-                        negative,
-                        styles,
+                        input_image, end_image,
+                        start_weight, end_weight,
+                        prompt, system_prompt, section_prompt, negative, styles,
                         seed,
                         resolution,
                         duration,
@@ -299,14 +288,7 @@ def create_ui():
                         cfg_scale, cfg_distilled, cfg_rescale,
                         shift,
                         use_teacache,
-                        mp4_fps,
-                        mp4_codec,
-                        mp4_sf,
-                        mp4_video,
-                        mp4_frames,
-                        mp4_opt,
-                        mp4_ext,
-                        mp4_interpolate,
+                        mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
                         attention,
                        ],
                 outputs=outputs,

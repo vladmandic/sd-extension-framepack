@@ -33,6 +33,7 @@ Clone repository into SD.Next `/extensions` folder
 
 - Supports both **I2V** (image-to-video) and **FLF2V** (frame-last-frame-to-video) modes  
   You can choose if you want to provide end frame or not  
+  if providing end frame, you can also provide weights for both init and end frame  
 - Supports resolution scaling: from 240p to 960p  
   Input image will be resized to closest aspect ratio supported by HV and scaled to desired resolution  
   *Note*: resolution is directly proportional to VRAM usage, so if you have low VRAM, use lower resolution  

@@ -89,7 +89,7 @@ def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_seco
     return latent_paddings
 
 
-def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate):
+def worker(input_image, end_image, start_weight, end_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -177,7 +177,7 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
             preprocessed = feature_extractor.preprocess(images=end_image, return_tensors="pt").to(device=image_encoder.device, dtype=image_encoder.dtype)
             end_image_encoder_output = image_encoder(**preprocessed)
             end_image_encoder_last_hidden_state = end_image_encoder_output.last_hidden_state
-            image_encoder_last_hidden_state = (image_encoder_last_hidden_state + end_image_encoder_last_hidden_state) / 2 # Combine both image embeddings or use a weighted approach
+            image_encoder_last_hidden_state = (image_encoder_last_hidden_state * start_weight) + (end_image_encoder_last_hidden_state * end_weight) / (start_weight + end_weight) # use weighted approach
         timer.process.add('vision', time.time()-t0)
         return image_encoder_last_hidden_state
 
@@ -214,7 +214,6 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
             t0 = time.time()
 
             height, width, _C = input_image.shape
-            has_end_image = end_image is not None
             start_latent, end_latent = vae_encode(input_image, end_image)
             image_encoder_last_hidden_state = vision_encode(input_image, end_image)
 
@@ -247,8 +246,8 @@ def worker(input_image, end_image, prompt, section_prompt, n_prompt, seed, total
                 clean_latents_pre = start_latent.to(history_latents)
                 clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
                 clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
-                if has_end_image and is_first_section:
-                    clean_latents_post = end_latent.to(history_latents) # pylint: disable=possibly-used-before-assignment
+                if end_image is not None and is_first_section:
+                    clean_latents_post = (clean_latents_post * start_weight / len(latent_paddings)) + (end_weight * end_latent.to(history_latents)) / (start_weight/len(latent_paddings) + end_weight) # pylint: disable=possibly-used-before-assignment
                     clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
 
                 sd_models.apply_balanced_offload(shared.sd_model)
