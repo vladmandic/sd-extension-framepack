@@ -42,6 +42,7 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
             fn = f'{output_filename}.safetensors'
             shared.log.info(f'FramePack export: file="{fn}" type=savetensors shape={x.shape}')
             from safetensors.torch import save_file
+            shared.state.outputs(fn)
             save_file({ 'frames': x }, fn, metadata={'format': 'video', 'frames': str(t), 'width': str(w), 'height': str(h), 'fps': str(mp4_fps), 'codec': mp4_codec, 'options': mp4_opt, 'ext': mp4_ext, 'interpolate': str(mp4_interpolate)})
 
         if mp4_frames:
@@ -49,10 +50,11 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
             for i in range(t):
                 image = cv2.cvtColor(x[i].numpy(), cv2.COLOR_RGB2BGR)
                 fn = f'{output_filename}-{i:05d}.jpg'
+                shared.state.outputs(fn)
                 cv2.imwrite(fn, image)
 
         if mp4_video and (mp4_codec != 'none'):
-            output_filename = f'{output_filename}.{mp4_ext}'
+            fn = f'{output_filename}.{mp4_ext}'
             options = {}
             for option in [option.strip() for option in mp4_opt.split(',')]:
                 if '=' in option:
@@ -62,10 +64,11 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
                 else:
                     continue
                 options[key.strip()] = value.strip()
-            shared.log.info(f'FramePack video: file="{output_filename}" raw={size} codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
-            torchvision.io.write_video(output_filename, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
-            stream.output_queue.push(('progress', (None, f'Video {os.path.basename(output_filename)} | Codec {mp4_codec} | Size {w}x{h}x{t} | FPS {mp4_fps}')))
-            stream.output_queue.push(('file', output_filename))
+            shared.log.info(f'FramePack video: file="{fn}" raw={size} codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
+            shared.state.outputs(fn)
+            torchvision.io.write_video(fn, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
+            stream.output_queue.push(('progress', (None, f'Video {os.path.basename(fn)} | Codec {mp4_codec} | Size {w}x{h}x{t} | FPS {mp4_fps}')))
+            stream.output_queue.push(('file', fn))
         else:
             stream.output_queue.push(('progress', (None, '')))
 
@@ -89,7 +92,7 @@ def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_seco
     return latent_paddings
 
 
-def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate):
+def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, vae_type):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -142,7 +145,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         timer.process.add('prompt', time.time()-t0)
         return llama_vec, llama_vec_n, llama_attention_mask, llama_attention_mask_n, clip_l_pooler, clip_l_pooler_n
 
-    def vae_encode(input_image, end_image):
+    def latents_encode(input_image, end_image):
         pbar.update(task, description='image encode')
         # shared.log.debug(f'FramePack: image encode init={input_image.shape} end={end_image.shape if end_image is not None else None}')
         t0 = time.time()
@@ -152,7 +155,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         if input_image is not None:
             input_image_pt = torch.from_numpy(input_image).float() / 127.5 - 1
             input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
-            start_latent = hunyuan.vae_encode(input_image_pt, vae)
+            start_latent = framepack_vae.vae_encode(input_image_pt)
         if start_weight < 1:
             torch.manual_seed(seed)
             noise = torch.randn_like(start_latent)
@@ -160,7 +163,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         if end_image is not None:
             end_image_pt = torch.from_numpy(end_image).float() / 127.5 - 1
             end_image_pt = end_image_pt.permute(2, 0, 1)[None, :, None]
-            end_latent = hunyuan.vae_encode(end_image_pt, vae)
+            end_latent = framepack_vae.vae_encode(end_image_pt)
         else:
             end_latent = None
         timer.process.add('encode', time.time()-t0)
@@ -203,7 +206,6 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
                 time.sleep(0.1)
         nonlocal total_generated_frames, t_last
         t_preview = time.time()
-        preview = framepack_vae.vae_decode_simple(d['denoised'])
         current_step = d['i'] + 1
         shared.state.textinfo = ''
         shared.state.sampling_step = ((lattent_padding_loop-1) * steps) + current_step
@@ -212,8 +214,12 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         total_generated_frames = int(max(0, total_generated_latent_frames * 4 - 3))
         pbar.update(task, advance=1, description=f'its={1/(t_current-t_last):.2f} sample={d["i"]+1}/{steps} section={lattent_padding_loop}/{len(latent_paddings)} frames={total_generated_frames}/{num_frames*len(latent_paddings)}')
         desc = f'Step {shared.state.sampling_step}/{shared.state.sampling_steps} | Current {current_step}/{steps} | Section {lattent_padding_loop}/{len(latent_paddings)} | Progress {progress:.2%}'
-        stream.output_queue.push(('progress', (preview, desc)))
-        timer.process.add('preview', time.time()-t_preview)
+        if use_preview:
+            preview = framepack_vae.vae_decode(d['denoised'], 'Preview')
+            stream.output_queue.push(('progress', (preview, desc)))
+        else:
+            stream.output_queue.push(('progress', (None, desc)))
+        timer.process.add('preview', time.time() - t_preview)
         t_last = t_current
         return
 
@@ -222,7 +228,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
             t0 = time.time()
 
             height, width, _C = input_image.shape
-            start_latent, end_latent = vae_encode(input_image, end_image)
+            start_latent, end_latent = latents_encode(input_image, end_image)
             image_encoder_last_hidden_state = vision_encode(input_image, end_image)
 
             # Sample loop
@@ -305,11 +311,11 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
                 sd_models.apply_balanced_offload(shared.sd_model)
                 sd_models.move_model(vae, devices.device, force=True)
                 if history_pixels is None:
-                    history_pixels = hunyuan.vae_decode(real_history_latents, vae).cpu()
+                    history_pixels = framepack_vae.vae_decode(real_history_latents, vae_type=vae_type).cpu()
                 else:
                     section_latent_frames = (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
                     overlapped_frames = latent_window_size * 4 - 3
-                    current_pixels = hunyuan.vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
+                    current_pixels = framepack_vae.vae_decode(real_history_latents[:, :, :section_latent_frames], vae_type=vae_type).cpu()
                     history_pixels = utils.soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
                 timer.process.add('vae', time.time()-t_vae)
 

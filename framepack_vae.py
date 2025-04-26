@@ -1,6 +1,6 @@
 import torch
 import einops
-from modules import devices
+from modules import shared, devices
 
 
 latent_rgb_factors = [ # from comfyui
@@ -24,6 +24,7 @@ latent_rgb_factors = [ # from comfyui
 latent_rgb_factors_bias = [0.0259, -0.0192, -0.0761]
 vae_weight = None
 vae_bias = None
+taesd = None
 
 
 def vae_decode_simple(latents):
@@ -32,8 +33,64 @@ def vae_decode_simple(latents):
         if vae_weight is None or vae_bias is None:
             vae_weight = torch.tensor(latent_rgb_factors, device=devices.device, dtype=devices.dtype).transpose(0, 1)[:, :, None, None, None]
             vae_bias = torch.tensor(latent_rgb_factors_bias, device=devices.device, dtype=devices.dtype)
-        images = torch.nn.functional.conv3d(latents.to(devices.dtype), weight=vae_weight, bias=vae_bias, stride=1, padding=0, dilation=1, groups=1)
+        images = torch.nn.functional.conv3d(latents, weight=vae_weight, bias=vae_bias, stride=1, padding=0, dilation=1, groups=1)
         images = (images + 1.2) * 100 # sort-of normalized
         images = einops.rearrange(images, 'b c t h w -> (b h) (t w) c')
         images = images.to(torch.uint8).detach().cpu().numpy().clip(0, 255)
     return images
+
+
+def vae_decode_tiny(latents):
+    global taesd # pylint: disable=global-statement
+    if taesd is None:
+        from modules import sd_vae_taesd
+        taesd = sd_vae_taesd.get_model(variant='TAE HunyuanVideo')
+        shared.log.debug(f'Video VAE: type=Tiny cls={taesd.__class__.__name__} latents={latents.shape}')
+    with devices.inference_context():
+        taesd = taesd.to(device=devices.device, dtype=devices.dtype)
+        latents = latents.transpose(1, 2) # pipe produces NCTHW and tae wants NTCHW
+        images = taesd.decode_video(latents, parallel=False, show_progress_bar=False)
+        images = images.transpose(1, 2).mul_(2).sub_(1) # normalize
+        taesd = taesd.to(device=devices.cpu, dtype=devices.dtype)
+    return images
+
+
+def vae_decode_remote(latents):
+    # from modules.sd_vae_remote import remote_decode
+    # images = remote_decode(latents, model_type='hunyuanvideo')
+    from diffusers.utils.remote_utils import remote_decode
+    images = remote_decode(
+        tensor=latents.contiguous(),
+        endpoint='https://o7ywnmrahorts457.us-east-1.aws.endpoints.huggingface.cloud',
+        output_type='pt',
+        return_type='pt',
+    )
+    return images
+
+
+def vae_decode_full(latents):
+    with devices.inference_context():
+        vae = shared.sd_model.vae
+        latents = (latents / vae.config.scaling_factor).to(device=vae.device, dtype=vae.dtype)
+        images = vae.decode(latents).sample
+    return images
+
+
+def vae_decode(latents, vae_type):
+    latents = latents.to(device=devices.device, dtype=devices.dtype)
+    if vae_type == 'Tiny':
+        return vae_decode_tiny(latents)
+    elif vae_type == 'Preview':
+        return vae_decode_simple(latents)
+    elif vae_type == 'Remote':
+        return vae_decode_remote(latents)
+    else: # vae_type == 'Full'
+        return vae_decode_full(latents)
+
+
+def vae_encode(image):
+    with devices.inference_context():
+        vae = shared.sd_model.vae
+        latents = vae.encode(image.to(device=vae.device, dtype=vae.dtype)).latent_dist.sample()
+        latents = latents * vae.config.scaling_factor
+    return latents

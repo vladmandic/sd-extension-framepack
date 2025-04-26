@@ -104,7 +104,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, init_image, end_image, start_weight, end_weight, vision_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention):
+def run_framepack(task_id, init_image, end_image, start_weight, end_weight, vision_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention, vae_type):
     if init_image is None:
         shared.log.error('FramePack: no input image')
         return gr.update(), gr.update(), 'No input image'
@@ -160,8 +160,9 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, visi
             p.steps,
             cfg_scale, cfg_distilled, cfg_rescale,
             shift,
-            use_teacache, use_cfgzero,
+            use_teacache, use_cfgzero, use_preview,
             mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
+            vae_type,
         )
 
         output_filename = None
@@ -249,7 +250,9 @@ def create_ui():
                         receipe_reset = gr.Button(value="Reset receipe", elem_id="framepack_btn_reset_model", interactive=True)
                     use_teacache = gr.Checkbox(label='Enable TeaCache', value=True)
                     use_cfgzero = gr.Checkbox(label='Enable CFGZero', value=False)
+                    use_preview = gr.Checkbox(label='Enable Preview', value=True)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
+                    vae_type = gr.Dropdown(label="VAE", choices=['Full', 'Tiny', 'Remote'], value='Local', type='value')
                 with gr.Accordion(label="System prompt", open=False):
                     system_prompt = gr.Textbox(label="System prompt", elem_id="framepack_system_prompt", lines=6, placeholder="Optional system prompt for the model", interactive=True)
                 override_settings = ui_common.create_override_inputs('framepack')
@@ -288,9 +291,9 @@ def create_ui():
                         steps,
                         cfg_scale, cfg_distilled, cfg_rescale,
                         shift,
-                        use_teacache, use_cfgzero,
+                        use_teacache, use_cfgzero, use_preview,
                         mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
-                        attention,
+                        attention, vae_type,
                        ],
                 outputs=outputs,
             )

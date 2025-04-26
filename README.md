@@ -59,6 +59,13 @@ Clone repository into SD.Next `/extensions` folder
 - Model download & load on-demand  
 - Configurable torch cross-attention  
 
+### LoRA
+
+- Limited support for any HunyuanVideo LoRAs
+- Uses standard syntax: `<lora:filename:weight>`  
+  *Note*: There is no networks panel available in FramePack so you have to add LoRA to prompt manually  
+- Effects will be limited unless LoRA is trained on FramePack itself 
+
 ### Video
 
 - Video is encoded using selected codec and codec options  
