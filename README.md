@@ -9,6 +9,14 @@ With some major differences and improvements:
 - **Video**: multiple video codecs, raw export, frame export, frame interpolation  
 - **Compute**: Quantization support, new offloading, more configuration options, cross-platform  
 
+> Screenshot:
+
+![Image](https://github.com/user-attachments/assets/68ee7cc3-dd80-4b40-bede-dda7d7bc47c8)
+
+> Example:
+
+<video width=928 height=544 src="https://github.com/user-attachments/assets/59566791-a901-4703-91f3-e4053e03d7c3"></video>
+
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension,  
 > but will be fully integrated into the main codebase in the future  
