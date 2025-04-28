@@ -2,12 +2,12 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- I2V & FLF2V support  
-- Complex actions: modify prompt each section of the video  
-- Strength control: for init, end and vision model  
-- Custom models: replace llama with one of your choice  
-- Video: multiple video codecs, raw export, frame export, frame interpolation  
-- Compute: Quantization support, new offloading, more configuration options, cross-platform  
+- **I2V & FLF2V** support  
+- **Complex actions**: modify prompt each section of the video  
+- **Strength control**: for init, end and vision model  
+- **Custom models**: replace llama with one of your choice  
+- **Video**: multiple video codecs, raw export, frame export, frame interpolation  
+- **Compute**: Quantization support, new offloading, more configuration options, cross-platform  
 
 > [!NOTE]
 > At the moment implemented as [SD.Next](https://github.com/vladmandic/sdnext) extension,  
@@ -23,7 +23,10 @@ Exension repository URL: <https://github.com/vladmandic/sd-extension-framepack>
 
 ### Via UI  
 
-Enter repository URL in *SD.Next -> Extensions -> Manual Install* and select *Install*  
+Refresh extension list and install extension by selecting it and pressing install
+
+Or enter repository URL in *SD.Next -> Extensions -> Manual Install* and select *Install*  
+
 Extension will appear as a top-level tab after server restart  
 
 ### Via CLI  
@@ -126,8 +129,5 @@ Allows to:
 
 ## TODO
 
-- CFGzero
-- LoRA support
 - Frame upscaling
 - Full codebase integration
-- API
