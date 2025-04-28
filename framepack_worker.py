@@ -108,7 +108,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
     total_generated_latent_frames = 0
     latent_paddings = get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length)
     num_frames = latent_window_size * 4 - 3 # number of frames to generate in each section
-    prompts = section_prompt.splitlines()
+    prompts = section_prompt.splitlines() if section_prompt else []
 
     shared.state.begin('Video')
     shared.state.job_count = 1

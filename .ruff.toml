@@ -8,9 +8,9 @@ exclude = [
 line-length = 250
 indent-width = 4
 target-version = "py39"
-fixable = ["ALL"]
-unfixable = []
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+lint.fixable = ["ALL"]
+lint.unfixable = []
+lint.dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [format]
 quote-style = "double"

@@ -26,7 +26,7 @@ Exension repository URL: <https://github.com/vladmandic/sd-extension-framepack>
 Enter repository URL in *SD.Next -> Extensions -> Manual Install* and select *Install*  
 Extension will appear as a top-level tab after server restart  
 
-## Via CLI  
+### Via CLI  
 
 Clone repository into SD.Next `/extensions` folder
 
@@ -84,6 +84,15 @@ Clone repository into SD.Next `/extensions` folder
 - Does not create intermediate video or image files  
 - Optional save raw video frames as `safetensors` file so they can be processed later  
 
+### API
+
+Extension supports API calls: `/sdapi/v1/framepack`  
+Only required params are base64-encoded init-image and prompt, all other parameters are optional  
+Once video has been generated, you can download it using `/file={path-to-file}` endpoint  
+For example, see `create-video.py`
+
+> `python create-video.py --help`
+
 ### Receipe
 
 You can get current receipe to see which modules would be loaded and change them if desired  
@@ -96,7 +105,7 @@ For example, changing original **llama** to different one can be done with:
 
 ### CLI
 
-> `python framepack_cli.py`
+> `python encode-video.py`
 
 Allows to:  
 - Export frames from `safetensors` file as individual images  
