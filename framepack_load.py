@@ -147,7 +147,7 @@ def load_model(pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None
         shared.log.debug(f'FramePack load: module=transformer {model["transformer"]}')
         load_args, quant_args = model_quant.get_dit_args({}, module='Video', device_map=True)
         transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(model["transformer"]["repo"], subfolder=model["transformer"]["subfolder"], cache_dir=shared.opts.hfcache_dir, **load_args, **quant_args)
-        transformer.high_quality_fp32_output_for_inference = True
+        transformer.high_quality_fp32_output_for_inference = False
         transformer.requires_grad_(False)
         transformer.eval()
         sd_models.move_model(transformer, devices.cpu)

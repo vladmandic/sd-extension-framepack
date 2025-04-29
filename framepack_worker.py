@@ -127,7 +127,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
     t_last = time.time()
 
     def text_encode(prompt, i:int=None):
-        pbar.update(task, description=f'text encode secttion={i}')
+        pbar.update(task, description=f'text encode section={i}')
         t0 = time.time()
         # shared.log.debug(f'FramePack: section={i} prompt="{prompt}"')
         shared.state.textinfo = 'Text encode'
@@ -235,7 +235,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
             shared.state.textinfo = 'Sample'
             stream.output_queue.push(('progress', (None, 'Start sampling...')))
             generator = torch.Generator("cpu").manual_seed(seed)
-            history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=torch.float32).cpu()
+            history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=devices.dtype).cpu()
             history_pixels = None
             lattent_padding_loop = 0
             last_prompt = None
