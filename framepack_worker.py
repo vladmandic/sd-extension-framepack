@@ -79,20 +79,26 @@ def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4
     return t
 
 
-def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length):
+def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length, variant):
     try:
         real_fps = mp4_fps / (mp4_interpolate + 1)
-        total_latent_sections = int(max((total_second_length * real_fps) / (latent_window_size * 4), 1))
-        latent_paddings = list(reversed(range(total_latent_sections)))
-        if total_latent_sections > 4: # extra padding for better quality
-            # latent_paddings = list(reversed(range(total_latent_sections)))
-            latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
+        is_f1 = variant == 'forward-only'
+        if is_f1:
+            total_latent_sections = (total_second_length * real_fps) / (latent_window_size * 4)
+            total_latent_sections = int(max(round(total_latent_sections), 1))
+            latent_paddings = list(range(total_latent_sections))
+        else:
+            total_latent_sections = int(max((total_second_length * real_fps) / (latent_window_size * 4), 1))
+            latent_paddings = list(reversed(range(total_latent_sections)))
+            if total_latent_sections > 4: # extra padding for better quality
+                # latent_paddings = list(reversed(range(total_latent_sections)))
+                latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
     except Exception:
         latent_paddings = [0]
     return latent_paddings
 
 
-def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, vae_type):
+def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, vae_type, variant):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -104,9 +110,10 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
     from diffusers_helper import utils
     from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
 
+    is_f1 = variant == 'forward-only'
     total_generated_frames = 0
     total_generated_latent_frames = 0
-    latent_paddings = get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length)
+    latent_paddings = get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length, variant)
     num_frames = latent_window_size * 4 - 3 # number of frames to generate in each section
     prompts = section_prompt.splitlines() if section_prompt else []
 
@@ -235,7 +242,10 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
             shared.state.textinfo = 'Sample'
             stream.output_queue.push(('progress', (None, 'Start sampling...')))
             generator = torch.Generator("cpu").manual_seed(seed)
-            history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=devices.dtype).cpu()
+            if is_f1:
+                history_latents = torch.zeros(size=(1, 16, 16 + 2 + 1, height // 8, width // 8), dtype=torch.float32).cpu()
+            else:
+                history_latents = torch.zeros(size=(1, 16, 1 + 2 + 16, height // 8, width // 8), dtype=devices.dtype).cpu()
             history_pixels = None
             lattent_padding_loop = 0
             last_prompt = None
@@ -247,22 +257,31 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
                     last_prompt = current_prompt
 
                 lattent_padding_loop += 1
-                # shared.log.debug(f'FramePack: op=sample section={lattent_padding_loop}/{len(latent_paddings)} frames={total_generated_frames}/{num_frames*len(latent_paddings)} window={latent_window_size} size={num_frames}')
-                is_first_section = latent_padding == latent_paddings[0]
-                is_last_section = latent_padding == 0
-                latent_padding_size = latent_padding * latent_window_size
+                # shared.log.trace(f'FramePack: op=sample section={lattent_padding_loop}/{len(latent_paddings)} frames={total_generated_frames}/{num_frames*len(latent_paddings)} window={latent_window_size} size={num_frames}')
+                if is_f1:
+                    is_first_section, is_last_section = False, False
+                else:
+                    is_first_section, is_last_section = latent_padding == latent_paddings[0], latent_padding == 0
                 if stream.input_queue.top() == 'end' or shared.state.interrupted or shared.state.skipped:
                     stream.output_queue.push(('end', None))
                     return
-                indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
-                clean_latent_indices_pre, _blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split([1, latent_padding_size, latent_window_size, 1, 2, 16], dim=1)
-                clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
-                clean_latents_pre = start_latent.to(history_latents)
-                clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
-                clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
-                if end_image is not None and is_first_section:
-                    clean_latents_post = (clean_latents_post * start_weight / len(latent_paddings)) + (end_weight * end_latent.to(history_latents)) / (start_weight/len(latent_paddings) + end_weight) # pylint: disable=possibly-used-before-assignment
+                if is_f1:
+                    indices = torch.arange(0, sum([1, 16, 2, 1, latent_window_size])).unsqueeze(0)
+                    clean_latent_indices_start, clean_latent_4x_indices, clean_latent_2x_indices, clean_latent_1x_indices, latent_indices = indices.split([1, 16, 2, 1, latent_window_size], dim=1)
+                    clean_latent_indices = torch.cat([clean_latent_indices_start, clean_latent_1x_indices], dim=1)
+                    clean_latents_4x, clean_latents_2x, clean_latents_1x = history_latents[:, :, -sum([16, 2, 1]):, :, :].split([16, 2, 1], dim=2)
+                    clean_latents = torch.cat([start_latent.to(history_latents), clean_latents_1x], dim=2)
+                else:
+                    latent_padding_size = latent_padding * latent_window_size
+                    indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
+                    clean_latent_indices_pre, _blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split([1, latent_padding_size, latent_window_size, 1, 2, 16], dim=1)
+                    clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
+                    clean_latents_pre = start_latent.to(history_latents)
+                    clean_latents_post, clean_latents_2x, clean_latents_4x = history_latents[:, :, :1 + 2 + 16, :, :].split([1, 2, 16], dim=2)
                     clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
+                    if end_image is not None and is_first_section:
+                        clean_latents_post = (clean_latents_post * start_weight / len(latent_paddings)) + (end_weight * end_latent.to(history_latents)) / (start_weight/len(latent_paddings) + end_weight) # pylint: disable=possibly-used-before-assignment
+                        clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
 
                 sd_models.apply_balanced_offload(shared.sd_model)
                 transformer.initialize_teacache(enable_teacache=use_teacache, num_steps=steps)
@@ -303,9 +322,13 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
                 if is_last_section:
                     generated_latents = torch.cat([start_latent.to(generated_latents), generated_latents], dim=2)
                 total_generated_latent_frames += int(generated_latents.shape[2])
-                history_latents = torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
 
-                real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
+                if is_f1:
+                    history_latents = torch.cat([history_latents, generated_latents.to(history_latents)], dim=2)
+                    real_history_latents = history_latents[:, :, -total_generated_latent_frames:, :, :]
+                else:
+                    history_latents = torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
+                    real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
 
                 t_vae = time.time()
                 sd_models.apply_balanced_offload(shared.sd_model)
@@ -313,10 +336,15 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
                 if history_pixels is None:
                     history_pixels = framepack_vae.vae_decode(real_history_latents, vae_type=vae_type).cpu()
                 else:
-                    section_latent_frames = (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
                     overlapped_frames = latent_window_size * 4 - 3
-                    current_pixels = framepack_vae.vae_decode(real_history_latents[:, :, :section_latent_frames], vae_type=vae_type).cpu()
-                    history_pixels = utils.soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
+                    if is_f1:
+                        section_latent_frames = latent_window_size * 2
+                        current_pixels = framepack_vae.vae_decode(real_history_latents[:, :, -section_latent_frames:], vae).cpu()
+                        history_pixels = utils.soft_append_bcthw(history_pixels, current_pixels, overlapped_frames)
+                    else:
+                        section_latent_frames = (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
+                        current_pixels = framepack_vae.vae_decode(real_history_latents[:, :, :section_latent_frames], vae_type=vae_type).cpu()
+                        history_pixels = utils.soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
                 timer.process.add('vae', time.time()-t_vae)
 
                 if is_last_section:

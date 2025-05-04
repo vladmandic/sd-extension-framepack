@@ -4,6 +4,7 @@ from modules import shared
 
 
 class ReqFramepack(BaseModel):
+    variant: str = Field(title="Model variant", description="Model variant to use")
     prompt: str = Field(title="Prompt", description="Prompt for the model")
     init_image: str = Field(default=None, title="Initial image", description="Base64 encoded initial image")
     end_image: Optional[str] = Field(default=None, title="End image", description="Base64 encoded end image")
@@ -57,6 +58,7 @@ def framepack_post(request: ReqFramepack):
 
     generator = run_framepack(
         task_id=f'task({task_id})',
+        variant=request.variant,
         init_image=init_image,
         end_image=end_image,
         start_weight=request.start_weight,

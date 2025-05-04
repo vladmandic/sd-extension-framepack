@@ -6,8 +6,8 @@ from framepack_wrappers import get_codecs, load_model, unload_model, run_framepa
 from framepack_api import create_api
 
 
-def change_sections(duration, mp4_fps, mp4_interpolate, latent_ws):
-    num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration))
+def change_sections(duration, mp4_fps, mp4_interpolate, latent_ws, variant):
+    num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration, variant))
     num_frames = (latent_ws * 4 - 3) * num_sections + 1
     return gr.update(value=f'Target video: {num_frames} frames in {num_sections} sections'), gr.update(lines=max(2, 2*num_sections//3))
 
@@ -18,12 +18,7 @@ def create_ui():
         with gr.Row():
             with gr.Column():
                 with gr.Row():
-                    input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
-                    end_image = gr.Image(sources='upload', type="numpy", label="End image", height=512, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
-                with gr.Row():
-                    start_weight = gr.Slider(label="Init strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_start_weight")
-                    end_weight = gr.Slider(label="End strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_end_weight")
-                    vision_weight = gr.Slider(label="Vision strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_vision_weight")
+                    variant = gr.Dropdown(label="Model variant", choices=list(framepack_load.models), value='bi-directional', type='value')
                 with gr.Row():
                     resolution = gr.Slider(label="Resolution", minimum=240, maximum=1088, value=640, step=16)
                     duration = gr.Slider(label="Duration", minimum=1, maximum=120, value=4, step=0.1)
@@ -31,6 +26,14 @@ def create_ui():
                     mp4_interpolate = gr.Slider(label="Interpolation", minimum=0, maximum=10, value=0, step=1)
                 with gr.Row():
                     section_html = gr.HTML(show_label=False, elem_id="framepack_section_html")
+                with gr.Accordion(label="Inputs", open=True):
+                    with gr.Row():
+                        input_image = gr.Image(sources='upload', type="numpy", label="Init image", height=384, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_input_image")
+                        end_image = gr.Image(sources='upload', type="numpy", label="End image", height=384, interactive=True, tool="editor", image_mode='RGB', elem_id="framepack_end_image")
+                    with gr.Row():
+                        start_weight = gr.Slider(label="Init strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_start_weight")
+                        end_weight = gr.Slider(label="End strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_end_weight")
+                        vision_weight = gr.Slider(label="Vision strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, elem_id="framepack_vision_weight")
                 with gr.Accordion(label="Sections", open=False):
                     section_prompt = gr.Textbox(label="Section prompts", elem_id="framepack_section_prompt", lines=2, placeholder="Optional one-line prompt suffix per each video section", interactive=True)
                 with gr.Accordion(label="Video", open=False):
@@ -83,10 +86,10 @@ def create_ui():
             task_id = gr.Textbox(visible=False, value='')
             outputs = [result_video, preview_image, progress_desc]
 
-            duration.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
-            mp4_fps.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
-            mp4_interpolate.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt])
-            btn_load.click(fn=load_model, inputs=[attention], outputs=outputs)
+            duration.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt, variant])
+            mp4_fps.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt, variant])
+            mp4_interpolate.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt, variant])
+            btn_load.click(fn=load_model, inputs=[variant, attention], outputs=outputs)
             btn_unload.click(fn=unload_model, outputs=outputs)
             receipe_get.click(fn=framepack_load.get_model, inputs=[], outputs=receipe)
             receipe_set.click(fn=framepack_load.set_model, inputs=[receipe], outputs=[])
@@ -108,7 +111,7 @@ def create_ui():
                         shift,
                         use_teacache, use_cfgzero, use_preview,
                         mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
-                        attention, vae_type,
+                        attention, vae_type, variant,
                        ],
                 outputs=outputs,
             )

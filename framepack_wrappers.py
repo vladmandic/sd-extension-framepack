@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import threading
+import numpy as np
 import gradio as gr
 from modules import shared, processing, timer, paths, extra_networks, progress
 import framepack_install
@@ -13,8 +14,9 @@ import framepack_hijack
 tmp_dir = os.path.join(paths.data_path, 'tmp', 'framepack')
 git_dir = os.path.join(os.path.dirname(__file__), 'framepack')
 git_repo = 'https://github.com/lllyasviel/framepack'
-git_commit = 'a875c8b58691c7ba98f93ad6623994a4e69df8ef'
+git_commit = 'c5d375661a2557383f0b8da9d11d14c23b0c4eaf'
 queue_lock = threading.Lock()
+loaded_variant = None
 
 
 def check_av():
@@ -82,8 +84,9 @@ def prepare_prompt(p, system_prompt):
     framepack_hijack.set_prompt_template(p.prompt, system_prompt)
 
 
-def load_model(attention):
-    if shared.sd_model_type != 'hunyuanvideo':
+def load_model(variant, attention):
+    global loaded_variant # pylint: disable=global-statement
+    if (shared.sd_model_type != 'hunyuanvideo') or (loaded_variant != variant):
         yield gr.update(), gr.update(), 'Verifying FramePack'
         framepack_install.install_requirements(attention)
         framepack_install.git_clone(git_repo=git_repo, git_dir=git_dir, tmp_dir=tmp_dir)
@@ -91,8 +94,8 @@ def load_model(attention):
         sys.path.append(git_dir)
         framepack_hijack.set_progress_bar_config()
         yield gr.update(), gr.update(), 'Model loading...', ''
-        loaded = framepack_load.load_model()
-        if loaded:
+        loaded_variant = framepack_load.load_model(variant)
+        if loaded_variant is not None:
             return gr.update(), gr.update(), 'Model loaded'
         else:
             return gr.update(), gr.update(), 'Model load failed'
@@ -104,10 +107,16 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, init_image, end_image, start_weight, end_weight, vision_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention, vae_type):
+def run_framepack(task_id, init_image, end_image, start_weight, end_weight, vision_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention, vae_type, variant):
+    variant = variant or 'bi-directional'
     if init_image is None:
-        shared.log.error('FramePack: no input image')
-        return gr.update(), gr.update(), 'No input image'
+        init_image = np.zeros((resolution, resolution, 3), dtype=np.uint8)
+        mode = 't2v'
+    elif end_image is not None:
+        mode = 'flf2v'
+    else:
+        mode = 'i2v'
+
     av = check_av()
     if av is None:
         return gr.update(), gr.update(), 'AV package not installed'
@@ -116,7 +125,7 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, visi
     with queue_lock:
         progress.start_task(task_id)
 
-        yield from load_model(attention)
+        yield from load_model(variant, attention)
         if shared.sd_model_type != 'hunyuanvideo':
             progress.finish_task(task_id)
             return gr.update(), gr.update(), 'Model load failed'
@@ -129,10 +138,9 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, visi
             random.seed()
             seed = random.randrange(4294967294)
         seed = int(seed)
-        mode = 'i2v' if end_image is None else 'flf2v'
-        num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration))
+        num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration, variant))
         num_frames = (latent_ws * 4 - 3) * num_sections + 1
-        shared.log.info(f'FramePack start: mode={mode} frames={num_frames} sections={num_sections} resolution={resolution} seed={seed} duration={duration} teacache={use_teacache} cfgzero={use_cfgzero}')
+        shared.log.info(f'FramePack start: mode={mode} variant="{variant}" frames={num_frames} sections={num_sections} resolution={resolution} seed={seed} duration={duration} teacache={use_teacache} cfgzero={use_cfgzero}')
         init_image = prepare_image(init_image, resolution)
         if end_image is not None:
             end_image = prepare_image(end_image, resolution)
@@ -162,7 +170,7 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, visi
             shift,
             use_teacache, use_cfgzero, use_preview,
             mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
-            vae_type,
+            vae_type, variant,
         )
 
         output_filename = None

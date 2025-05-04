@@ -2,7 +2,8 @@
 
 Implementation of **Lllyasviel** [FramePack](https://lllyasviel.github.io/frame_pack_gitpage/) for **Tencent** [HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo) I2V  
 With some major differences and improvements:
-- **I2V & FLF2V** support  
+- **T2V, I2V & FLF2V** support  
+- **Bi-directional** and **Forward-only** *(F1)* model variants
 - **Complex actions**: modify prompt each section of the video  
 - **Strength control**: for init, end and vision model  
 - **Custom models**: replace llama with one of your choice  
@@ -43,7 +44,7 @@ Clone repository into SD.Next `/extensions` folder
 
 ## Differences
 
-- Supports both **I2V** (image-to-video) and **FLF2V** (frame-last-frame-to-video) modes  
+- Supports **T2V**, **I2V** (image-to-video) and **FLF2V** (frame-last-frame-to-video) modes  
   You can choose if you want to provide end frame or not  
 - Strength control  
   - init frame: controls amount of initial noise  

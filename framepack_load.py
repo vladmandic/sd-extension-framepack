@@ -2,6 +2,10 @@ import time
 from modules import shared, devices, errors, sd_models, model_quant
 
 
+models = {
+    'bi-directional': 'lllyasviel/FramePackI2V_HY',
+    'forward-only': 'lllyasviel/FramePack_F1_I2V_HY_20250503',
+}
 default_model = {
     'pipeline': { 'repo': 'hunyuanvideo-community/HunyuanVideo', 'subfolder': '' },
     'vae': { 'repo': 'hunyuanvideo-community/HunyuanVideo', 'subfolder': 'vae' },
@@ -13,7 +17,7 @@ default_model = {
     'tokenizer_2': { 'repo': 'hunyuanvideo-community/HunyuanVideo', 'subfolder': 'tokenizer_2' },
     'feature_extractor': { 'repo': 'lllyasviel/flux_redux_bfl', 'subfolder': 'feature_extractor' },
     'image_encoder': { 'repo': 'lllyasviel/flux_redux_bfl', 'subfolder': 'image_encoder' },
-    'transformer': { 'repo': 'lllyasviel/FramePackI2V_HY', 'subfolder': '' },
+    'transformer': { 'repo': models.get('bi-directional'), 'subfolder': '' },
 }
 model = default_model.copy()
 
@@ -54,8 +58,10 @@ def reset_model():
     return ''
 
 
-def load_model(pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None, feature_extractor:str=None, image_encoder:str=None, transformer:str=None):
+def load_model(variant:str=None, pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None, feature_extractor:str=None, image_encoder:str=None, transformer:str=None):
     shared.state.begin('Load')
+    if variant is not None:
+        model['transformer']['repo'] = models[variant]
     if pipeline is not None:
         model['pipeline'] = split_url(pipeline)
     if text_encoder is not None:
@@ -68,7 +74,7 @@ def load_model(pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None
         model['image_encoder'] = split_url(image_encoder)
     if transformer is not None:
         model['transformer'] = split_url(transformer)
-    shared.log.trace(f'FramePack load: {model}')
+    # shared.log.trace(f'FramePack load: {model}')
 
     try:
         import diffusers
@@ -168,7 +174,7 @@ def load_model(pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None
         t1 = time.time()
 
         diffusers.loaders.peft._SET_ADAPTER_SCALE_FN_MAPPING['HunyuanVideoTransformer3DModelPacked'] = lambda model_cls, weights: weights # pylint: disable=protected-access
-        shared.log.info(f'FramePack load: model={shared.sd_model.__class__.__name__} type={shared.sd_model_type} time={t1-t0:.2f}')
+        shared.log.info(f'FramePack load: model={shared.sd_model.__class__.__name__} variant="{variant}" type={shared.sd_model_type} time={t1-t0:.2f}')
         sd_models.apply_balanced_offload(shared.sd_model)
         devices.torch_gc(force=True)
 
@@ -176,10 +182,10 @@ def load_model(pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None
         shared.log.error(f'FramePack load: {e}')
         errors.display(e, 'FramePack')
         shared.state.end()
-        return False
+        return None
 
     shared.state.end()
-    return True
+    return variant
 
 
 def unload_model():
