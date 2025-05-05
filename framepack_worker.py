@@ -8,6 +8,7 @@ import einops
 import rich.progress as rp
 from modules import shared, errors ,devices, sd_models, timer, memstats, rife
 import framepack_vae
+import framepack_hijack
 
 
 stream = None # AsyncStream
@@ -98,7 +99,7 @@ def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_seco
     return latent_paddings
 
 
-def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompt, section_prompt, n_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, vae_type, variant):
+def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompts, n_prompt, system_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, vae_type, variant):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -115,7 +116,6 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
     total_generated_latent_frames = 0
     latent_paddings = get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length, variant)
     num_frames = latent_window_size * 4 - 3 # number of frames to generate in each section
-    prompts = section_prompt.splitlines() if section_prompt else []
 
     shared.state.begin('Video')
     shared.state.job_count = 1
@@ -132,6 +132,8 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
     pbar = rp.Progress(rp.TextColumn('[cyan]Video'), rp.BarColumn(), rp.MofNCompleteColumn(), rp.TaskProgressColumn(), rp.TimeRemainingColumn(), rp.TimeElapsedColumn(), rp.TextColumn('[cyan]{task.description}'), console=shared.console)
     task = pbar.add_task('starting', total=steps * len(latent_paddings))
     t_last = time.time()
+    if not is_f1:
+        prompts = list(reversed(prompts))
 
     def text_encode(prompt, i:int=None):
         pbar.update(task, description=f'text encode section={i}')
@@ -142,6 +144,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         sd_models.apply_balanced_offload(shared.sd_model)
         sd_models.move_model(text_encoder, devices.device, force=True) # required as hunyuan.encode_prompt_conds checks device before calling model
         sd_models.move_model(text_encoder_2, devices.device, force=True)
+        framepack_hijack.set_prompt_template(prompt, system_prompt)
         llama_vec, clip_l_pooler = hunyuan.encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
         if cfg_scale > 1:
             llama_vec_n, clip_l_pooler_n = hunyuan.encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
@@ -251,7 +254,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
             last_prompt = None
 
             for latent_padding in latent_paddings:
-                current_prompt = prompt + ' ' + prompts[lattent_padding_loop] if len(prompts) > lattent_padding_loop else prompt
+                current_prompt = prompts[lattent_padding_loop]
                 if current_prompt != last_prompt:
                     llama_vec, llama_vec_n, llama_attention_mask, llama_attention_mask_n, clip_l_pooler, clip_l_pooler_n = text_encode(current_prompt, i=lattent_padding_loop+1)
                     last_prompt = current_prompt
@@ -358,7 +361,6 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
     except Exception as e:
         shared.log.error(f'FramePack: {e}')
         errors.display(e, 'FramePack')
-
 
     sd_models.apply_balanced_offload(shared.sd_model)
     stream.output_queue.push(('end', None))

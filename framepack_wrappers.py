@@ -4,7 +4,7 @@ import random
 import threading
 import numpy as np
 import gradio as gr
-from modules import shared, processing, timer, paths, extra_networks, progress
+from modules import shared, processing, timer, paths, extra_networks, progress, ui_video_vlm
 import framepack_install
 import framepack_load
 import framepack_worker
@@ -74,14 +74,48 @@ def prepare_image(image, resolution):
     return image
 
 
-def prepare_prompt(p, system_prompt):
+def interpolate_prompts(prompts, steps):
+    interpolated_prompts = [''] * steps
+    if prompts is None:
+        return interpolated_prompts
+    if isinstance(prompts, str):
+        prompts = prompts.splitlines()
+    if len(prompts) == 0:
+        return interpolated_prompts
+    if len(prompts) == steps:
+        return prompts
+    factor = steps / len(prompts)
+    for i in range(steps):
+        prompt_index = int(i / factor)
+        interpolated_prompts[i] = prompts[prompt_index]
+        # shared.log.trace(f'FramePack interpolate: section={i} prompt="{interpolated_prompts[i]}"')
+    return interpolated_prompts
+
+
+def prepare_prompts(p, init_image, prompt:str, section_prompt:str, num_sections:int, vlm_enhance:bool, vlm_model:str, vlm_system_prompt:str):
+    section_prompts = interpolate_prompts(section_prompt, num_sections)
     p.prompt = shared.prompt_styles.apply_styles_to_prompt(p.prompt, p.styles)
     p.negative_prompt = shared.prompt_styles.apply_negative_styles_to_prompt(p.negative_prompt, p.styles)
     shared.prompt_styles.apply_styles_to_extra(p)
     p.prompts, p.network_data = extra_networks.parse_prompts([p.prompt])
-    p.prompt = p.prompts[0]
     extra_networks.activate(p)
-    framepack_hijack.set_prompt_template(p.prompt, system_prompt)
+    prompt = p.prompts[0]
+    generated_prompts = [''] * num_sections
+    previous_prompt = ''
+    for i in range(num_sections):
+        current_prompt = (prompt + ' ' + section_prompts[i]).strip()
+        if current_prompt == previous_prompt:
+            generated_prompts[i] = generated_prompts[i - 1]
+        else:
+            generated_prompts[i] = ui_video_vlm.enhance_prompt(
+                enable=vlm_enhance,
+                model=vlm_model,
+                image=init_image,
+                prompt=current_prompt,
+                system_prompt=vlm_system_prompt,
+            )
+            previous_prompt = current_prompt
+    return generated_prompts
 
 
 def load_model(variant, attention):
@@ -107,7 +141,7 @@ def unload_model():
     return gr.update(), gr.update(), 'Model unloaded'
 
 
-def run_framepack(task_id, init_image, end_image, start_weight, end_weight, vision_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention, vae_type, variant):
+def run_framepack(task_id, init_image, end_image, start_weight, end_weight, vision_weight, prompt, system_prompt, section_prompt, negative_prompt, styles, seed, resolution, duration, latent_ws, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, attention, vae_type, variant, vlm_enhance, vlm_model, vlm_system_prompt):
     variant = variant or 'bi-directional'
     if init_image is None:
         init_image = np.zeros((resolution, resolution, 3), dtype=np.uint8)
@@ -155,13 +189,13 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, visi
             width=w,
             height=h,
         )
-        prepare_prompt(p, system_prompt)
+        prompts = prepare_prompts(p, init_image, prompt, section_prompt, num_sections, vlm_enhance, vlm_model, vlm_system_prompt)
 
         async_run(
             framepack_worker.worker,
             init_image, end_image,
             start_weight, end_weight, vision_weight,
-            p.prompt, section_prompt, p.negative_prompt,
+            prompts, p.negative_prompt, system_prompt,
             seed,
             duration,
             latent_ws,

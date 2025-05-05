@@ -1,5 +1,5 @@
 import gradio as gr
-from modules import script_callbacks, ui_sections, ui_common, generation_parameters_copypaste
+from modules import script_callbacks, ui_sections, ui_common, generation_parameters_copypaste, ui_video_vlm
 import framepack_load
 import framepack_worker
 from framepack_wrappers import get_codecs, load_model, unload_model, run_framepack
@@ -22,7 +22,7 @@ def create_ui():
                 with gr.Row():
                     resolution = gr.Slider(label="Resolution", minimum=240, maximum=1088, value=640, step=16)
                     duration = gr.Slider(label="Duration", minimum=1, maximum=120, value=4, step=0.1)
-                    mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=20, step=1)
+                    mp4_fps = gr.Slider(label="FPS", minimum=1, maximum=60, value=24, step=1)
                     mp4_interpolate = gr.Slider(label="Interpolation", minimum=0, maximum=10, value=0, step=1)
                 with gr.Row():
                     section_html = gr.HTML(show_label=False, elem_id="framepack_section_html")
@@ -56,10 +56,15 @@ def create_ui():
                         cfg_scale = gr.Slider(label="CFG scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01)
                         cfg_distilled = gr.Slider(label="Distilled CFG scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
                         cfg_rescale = gr.Slider(label="CFG re-scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01)
+
+                vlm_enhance, vlm_model, vlm_system_prompt = ui_video_vlm.create_ui(prompt_element=prompt, image_element=input_image)
+
                 with gr.Accordion(label="Model", open=False):
                     with gr.Row():
                         btn_load = gr.Button(value="Load model", elem_id="framepack_btn_load", interactive=True)
                         btn_unload = gr.Button(value="Unload model", elem_id="framepack_btn_unload", interactive=True)
+                    with gr.Row():
+                        system_prompt = gr.Textbox(label="System prompt", elem_id="framepack_system_prompt", lines=6, placeholder="Optional system prompt for the model", interactive=True)
                     with gr.Row():
                         receipe = gr.Textbox(label="Model receipe", elem_id="framepack_model_receipe", lines=6, placeholder="Model receipe", interactive=True)
                     with gr.Row():
@@ -71,8 +76,6 @@ def create_ui():
                     use_preview = gr.Checkbox(label='Enable Preview', value=True)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
                     vae_type = gr.Dropdown(label="VAE", choices=['Full', 'Tiny', 'Remote'], value='Local', type='value')
-                with gr.Accordion(label="System prompt", open=False):
-                    system_prompt = gr.Textbox(label="System prompt", elem_id="framepack_system_prompt", lines=6, placeholder="Optional system prompt for the model", interactive=True)
                 override_settings = ui_common.create_override_inputs('framepack')
 
             with gr.Column():
@@ -86,9 +89,9 @@ def create_ui():
             task_id = gr.Textbox(visible=False, value='')
             outputs = [result_video, preview_image, progress_desc]
 
-            duration.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt, variant])
-            mp4_fps.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt, variant])
-            mp4_interpolate.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws], outputs=[section_html, section_prompt, variant])
+            duration.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws, variant], outputs=[section_html, section_prompt])
+            mp4_fps.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws, variant], outputs=[section_html, section_prompt])
+            mp4_interpolate.change(fn=change_sections, inputs=[duration, mp4_fps, mp4_interpolate, latent_ws, variant], outputs=[section_html, section_prompt])
             btn_load.click(fn=load_model, inputs=[variant, attention], outputs=outputs)
             btn_unload.click(fn=unload_model, outputs=outputs)
             receipe_get.click(fn=framepack_load.get_model, inputs=[], outputs=receipe)
@@ -112,6 +115,7 @@ def create_ui():
                         use_teacache, use_cfgzero, use_preview,
                         mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
                         attention, vae_type, variant,
+                        vlm_enhance, vlm_model, vlm_system_prompt,
                        ],
                 outputs=outputs,
             )

@@ -36,6 +36,9 @@ class ReqFramepack(BaseModel):
     mp4_interpolate: Optional[int] = Field(default=0, title="Interpolation", description="Interpolation for the video")
     attention: Optional[str] = Field(default="Default", title="Attention", description="Attention type for the model")
     vae_type: Optional[str] = Field(default="Local", title="VAE", description="VAE type for the model")
+    vlm_enhance: Optional[bool] = Field(default=False, title="VLM enhance", description="Enable VLM enhance")
+    vlm_model: Optional[str] = Field(default=None, title="VLM model", description="VLM model to use")
+    vlm_system_prompt: Optional[str] = Field(default=None, title="VLM system prompt", description="System prompt for the VLM model")
 
 
 class ResFramepack(BaseModel):
@@ -91,6 +94,9 @@ def framepack_post(request: ReqFramepack):
         mp4_interpolate=request.mp4_interpolate,
         attention=request.attention,
         vae_type=request.vae_type,
+        vlm_enhance=request.vlm_enhance,
+        vlm_model=request.vlm_model,
+        vlm_system_prompt=request.vlm_system_prompt,
     )
     response = ResFramepack(id=task_id, filename='', message='')
     for message in generator:
