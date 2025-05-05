@@ -101,7 +101,7 @@ def prepare_prompts(p, init_image, prompt:str, section_prompt:str, num_sections:
     extra_networks.activate(p)
     prompt = p.prompts[0]
     generated_prompts = [''] * num_sections
-    previous_prompt = ''
+    previous_prompt = None
     for i in range(num_sections):
         current_prompt = (prompt + ' ' + section_prompts[i]).strip()
         if current_prompt == previous_prompt:
