@@ -63,6 +63,7 @@ def generate(args): # pylint: disable=redefined-outer-name
         'duration': float(args.duration),
         'mp4_fps': int(args.fps),
         'seed': int(args.seed),
+        'vlm_enhance': bool(args.enhance),
     }
     log.info(f'request: {args}')
     result = post('/sdapi/v1/framepack', request) # can abandon request here and not wait for response or wait synchronously
@@ -91,6 +92,7 @@ if __name__ == "__main__":
     parser.add_argument('--duration', type=float, required=False, default=4.0, help='video duration')
     parser.add_argument('--fps', type=int, required=False, default=30, help='video frames per second')
     parser.add_argument('--seed', type=int, required=False, default=-1, help='random seed')
+    parser.add_argument('--enhance', required=False, action='store_true', help='random seed')
     args = parser.parse_args()
     log.info(f'api-framepack: {args}')
     generate(args)

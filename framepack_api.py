@@ -1,11 +1,12 @@
 from typing import Optional, List
 from pydantic import BaseModel, Field # pylint: disable=no-name-in-module
+from fastapi.exceptions import HTTPException
 from modules import shared
 
 
 class ReqFramepack(BaseModel):
-    variant: str = Field(title="Model variant", description="Model variant to use")
-    prompt: str = Field(title="Prompt", description="Prompt for the model")
+    variant: str = Field(default=None, title="Model variant", description="Model variant to use")
+    prompt: str = Field(default=None, title="Prompt", description="Prompt for the model")
     init_image: str = Field(default=None, title="Initial image", description="Base64 encoded initial image")
     end_image: Optional[str] = Field(default=None, title="End image", description="Base64 encoded end image")
     start_weight: Optional[float] = Field(default=1.0, title="Start weight", description="Weight of the initial image")
@@ -53,8 +54,24 @@ def framepack_post(request: ReqFramepack):
     from framepack_wrappers import run_framepack
     task_id = shared.state.get_id()
 
-    init_image = np.array(helpers.decode_base64_to_image(request.init_image)) if request.init_image else None
-    end_image = np.array(helpers.decode_base64_to_image(request.end_image)) if request.end_image else None
+    try:
+        if request.init_image is not None:
+            init_image = np.array(helpers.decode_base64_to_image(request.init_image)) if request.init_image else None
+        else:
+            init_image = None
+    except Exception as e:
+        shared.log.error(f"API FramePack: id={task_id} cannot decode init image: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    try:
+        if request.end_image is not None:
+            end_image = np.array(helpers.decode_base64_to_image(request.end_image)) if request.end_image else None
+        else:
+            end_image = None
+    except Exception as e:
+        shared.log.error(f"API FramePack: id={task_id} cannot decode end image: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
     del request.init_image
     del request.end_image
     shared.log.trace(f"API FramePack: id={task_id} init={init_image.shape} end={end_image.shape if end_image else None} {request}")
