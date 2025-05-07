@@ -26,12 +26,11 @@ def set_prompt_template(prompt, system_prompt:str=None):
     from diffusers_helper import hunyuan
     if system_prompt is None or len(system_prompt) == 0:
         system_prompt = (
-            "Describe the video by detailing the following aspects: \n"
-            "1. main content and theme of the video\n"
-            "2. actions, events, behaviors, temporal relationships, physical movement, and changes of the objects\n"
-            "3. camera angles, movements, transitions used in the video\n"
-            "4. color, shape, size, quantity, text, and spatial relationships of the objects\n"
-            "5. background environment, light, style, atmosphere\n"
+            "Describe the video by detailing the following aspects:\n"
+            "1. Main content and theme of the video.\n"
+            "2. Actions, events, behaviors, temporal relationships, physical movement, and changes of the subjects or objects.\n"
+            "3. Camera angles, camera movements, and transitions used in the video.\n"
+            "4. Details of the scene and background environment, light, style, and atmosphere.\n"
         )
     # system_prompt = DEFAULT_PROMPT_TEMPLATE["template"]
     inputs = shared.sd_model.tokenizer(system_prompt, max_length=256, truncation=True, return_tensors="pt", return_length=True, return_overflowing_tokens=False, return_attention_mask=False)

@@ -138,6 +138,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
     def text_encode(prompt, i:int=None):
         pbar.update(task, description=f'text encode section={i}')
         t0 = time.time()
+        torch.manual_seed(seed)
         # shared.log.debug(f'FramePack: section={i} prompt="{prompt}"')
         shared.state.textinfo = 'Text encode'
         stream.output_queue.push(('progress', (None, 'Text encoding...')))
@@ -159,6 +160,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         pbar.update(task, description='image encode')
         # shared.log.debug(f'FramePack: image encode init={input_image.shape} end={end_image.shape if end_image is not None else None}')
         t0 = time.time()
+        torch.manual_seed(seed)
         stream.output_queue.push(('progress', (None, 'VAE encoding...')))
         sd_models.apply_balanced_offload(shared.sd_model)
         sd_models.move_model(vae, devices.device, force=True)
@@ -167,7 +169,6 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
             input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
             start_latent = framepack_vae.vae_encode(input_image_pt)
         if start_weight < 1:
-            torch.manual_seed(seed)
             noise = torch.randn_like(start_latent)
             start_latent = start_latent * start_weight + noise * (1 - start_weight)
         if end_image is not None:

@@ -3,6 +3,7 @@ import sys
 import random
 import threading
 import numpy as np
+import torch
 import gradio as gr
 from modules import shared, processing, timer, paths, extra_networks, progress, ui_video_vlm
 import framepack_install
@@ -172,9 +173,11 @@ def run_framepack(task_id, init_image, end_image, start_weight, end_weight, visi
             random.seed()
             seed = random.randrange(4294967294)
         seed = int(seed)
+        torch.manual_seed(seed)
         num_sections = len(framepack_worker.get_latent_paddings(mp4_fps, mp4_interpolate, latent_ws, duration, variant))
         num_frames = (latent_ws * 4 - 3) * num_sections + 1
         shared.log.info(f'FramePack start: mode={mode} variant="{variant}" frames={num_frames} sections={num_sections} resolution={resolution} seed={seed} duration={duration} teacache={use_teacache} cfgzero={use_cfgzero}')
+        shared.log.info(f'FramePack params: start={start_weight} end={end_weight} vision={vision_weight} scale={cfg_scale} distilled={cfg_distilled} rescale={cfg_rescale} shift={shift}')
         init_image = prepare_image(init_image, resolution)
         if end_image is not None:
             end_image = prepare_image(end_image, resolution)

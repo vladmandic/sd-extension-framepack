@@ -43,6 +43,9 @@ def post(endpoint: str, dct: dict = None):
 
 
 def encode(f):
+    if not os.path.exists(f):
+        log.error(f'file not found: {f}')
+        os._exit(1)
     image = Image.open(f)
     if image.mode == 'RGBA':
         image = image.convert('RGB')
@@ -63,6 +66,10 @@ def generate(args): # pylint: disable=redefined-outer-name
         'duration': float(args.duration),
         'mp4_fps': int(args.fps),
         'seed': int(args.seed),
+        'steps': int(args.steps),
+        'cfg_scale': float(args.scale),
+        'cfg_rescale': float(args.rescale),
+        'cfg_distilled': float(args.distilled),
         'vlm_enhance': bool(args.enhance),
     }
     log.info(f'request: {args}')
@@ -93,6 +100,10 @@ if __name__ == "__main__":
     parser.add_argument('--fps', type=int, required=False, default=30, help='video frames per second')
     parser.add_argument('--seed', type=int, required=False, default=-1, help='random seed')
     parser.add_argument('--enhance', required=False, action='store_true', help='random seed')
+    parser.add_argument('--steps', type=int, default=25, help='steps')
+    parser.add_argument('--scale', type=float, default=1.0, help='cfg scale')
+    parser.add_argument('--rescale', type=float, default=0.0, help='cfg rescale')
+    parser.add_argument('--distilled', type=float, default=10.0, help='cfg distilled')
     args = parser.parse_args()
     log.info(f'api-framepack: {args}')
     generate(args)
