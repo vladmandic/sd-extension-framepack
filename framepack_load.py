@@ -1,5 +1,5 @@
 import time
-from modules import shared, devices, errors, sd_models, model_quant
+from modules import shared, devices, errors, sd_models, sd_checkpoint, model_quant
 
 
 models = {
@@ -61,6 +61,8 @@ def reset_model():
 def load_model(variant:str=None, pipeline:str=None, text_encoder:str=None, text_encoder_2:str=None, feature_extractor:str=None, image_encoder:str=None, transformer:str=None):
     shared.state.begin('Load')
     if variant is not None:
+        if variant not in models.keys():
+            raise ValueError(f'FramePack: variant="{variant}" invalid')
         model['transformer']['repo'] = models[variant]
     if pipeline is not None:
         model['pipeline'] = split_url(pipeline)
@@ -151,8 +153,9 @@ def load_model(variant:str=None, pipeline:str=None, text_encoder:str=None, text_
         sd_models.move_model(image_encoder, devices.cpu)
 
         shared.log.debug(f'FramePack load: module=transformer {model["transformer"]}')
+        dit_repo = model["transformer"]["repo"]
         load_args, quant_args = model_quant.get_dit_args({}, module='Video', device_map=True)
-        transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(model["transformer"]["repo"], subfolder=model["transformer"]["subfolder"], cache_dir=shared.opts.hfcache_dir, **load_args, **quant_args)
+        transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(dit_repo, subfolder=model["transformer"]["subfolder"], cache_dir=shared.opts.hfcache_dir, **load_args, **quant_args)
         transformer.high_quality_fp32_output_for_inference = False
         transformer.requires_grad_(False)
         transformer.eval()
@@ -169,6 +172,8 @@ def load_model(variant:str=None, pipeline:str=None, text_encoder:str=None, text_
             transformer=transformer,
             scheduler=None,
         )
+        shared.sd_model.sd_checkpoint_info = sd_checkpoint.CheckpointInfo(dit_repo) # pylint: disable=attribute-defined-outside-init
+        shared.sd_model.sd_model_checkpoint = dit_repo # pylint: disable=attribute-defined-outside-init
 
         shared.sd_model = model_quant.do_post_load_quant(shared.sd_model)
         t1 = time.time()

@@ -51,7 +51,7 @@ def create_ui():
                     latent_ws = gr.Slider(label="Latent window size", minimum=1, maximum=33, value=9, step=1)
                     with gr.Row():
                         steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
-                        shift = gr.Slider(label="Sampler shift", minimum=0, maximum=10, value=0, step=1)
+                        shift = gr.Slider(label="Sampler shift", minimum=0.0, maximum=10.0, value=3.0, step=0.01)
                     with gr.Row():
                         cfg_scale = gr.Slider(label="CFG scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01)
                         cfg_distilled = gr.Slider(label="Distilled CFG scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)

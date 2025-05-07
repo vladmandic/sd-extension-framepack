@@ -59,6 +59,7 @@ def encode(f):
 
 def generate(args): # pylint: disable=redefined-outer-name
     request = {
+        'variant': args.variant,
         'prompt': args.prompt,
         'init_image': encode(args.init),
         'end_image': encode(args.end) if args.end else None,
@@ -67,9 +68,11 @@ def generate(args): # pylint: disable=redefined-outer-name
         'mp4_fps': int(args.fps),
         'seed': int(args.seed),
         'steps': int(args.steps),
+        'shift': float(args.shift),
         'cfg_scale': float(args.scale),
         'cfg_rescale': float(args.rescale),
         'cfg_distilled': float(args.distilled),
+        'use_teacache': bool(args.teacache),
         'vlm_enhance': bool(args.enhance),
     }
     log.info(f'request: {args}')
@@ -99,11 +102,14 @@ if __name__ == "__main__":
     parser.add_argument('--duration', type=float, required=False, default=4.0, help='video duration')
     parser.add_argument('--fps', type=int, required=False, default=30, help='video frames per second')
     parser.add_argument('--seed', type=int, required=False, default=-1, help='random seed')
-    parser.add_argument('--enhance', required=False, action='store_true', help='random seed')
+    parser.add_argument('--enhance', required=False, action='store_true', help='enable prompt enhancer')
+    parser.add_argument('--teacache', required=False, action='store_true', help='enable teacache')
     parser.add_argument('--steps', type=int, default=25, help='steps')
     parser.add_argument('--scale', type=float, default=1.0, help='cfg scale')
     parser.add_argument('--rescale', type=float, default=0.0, help='cfg rescale')
     parser.add_argument('--distilled', type=float, default=10.0, help='cfg distilled')
+    parser.add_argument('--shift', type=float, default=0.0, help='sampler shift')
+    parser.add_argument('--variant', type=str, default='bi-directional', choices=['bi-directional', 'forward-only'], help='model variant')
     args = parser.parse_args()
     log.info(f'api-framepack: {args}')
     generate(args)

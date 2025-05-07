@@ -4,6 +4,4 @@ __pycache__
 .ruff_cache
 venv
 /framepack
-*.tmp
-*.pyc
-*.sh
+/temp

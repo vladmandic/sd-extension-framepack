@@ -147,7 +147,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         sd_models.move_model(text_encoder_2, devices.device, force=True)
         framepack_hijack.set_prompt_template(prompt, system_prompt)
         llama_vec, clip_l_pooler = hunyuan.encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
-        if cfg_scale > 1:
+        if cfg_scale > 1 and n_prompt is not None and len(n_prompt) > 0:
             llama_vec_n, clip_l_pooler_n = hunyuan.encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
         else:
             llama_vec_n, clip_l_pooler_n = torch.zeros_like(llama_vec), torch.zeros_like(clip_l_pooler)
@@ -288,7 +288,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
                         clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
 
                 sd_models.apply_balanced_offload(shared.sd_model)
-                transformer.initialize_teacache(enable_teacache=use_teacache, num_steps=steps)
+                transformer.initialize_teacache(enable_teacache=use_teacache, num_steps=steps, rel_l1_thresh=shared.opts.teacache_thresh)
 
                 t_sample = time.time()
                 generated_latents = sample_hunyuan(
