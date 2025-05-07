@@ -108,7 +108,7 @@ if __name__ == "__main__":
     parser.add_argument('--scale', type=float, default=1.0, help='cfg scale')
     parser.add_argument('--rescale', type=float, default=0.0, help='cfg rescale')
     parser.add_argument('--distilled', type=float, default=10.0, help='cfg distilled')
-    parser.add_argument('--shift', type=float, default=0.0, help='sampler shift')
+    parser.add_argument('--shift', type=float, default=3.0, help='sampler shift')
     parser.add_argument('--variant', type=str, default='bi-directional', choices=['bi-directional', 'forward-only'], help='model variant')
     args = parser.parse_args()
     log.info(f'api-framepack: {args}')
