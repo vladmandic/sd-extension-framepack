@@ -13,6 +13,7 @@ class ReqFramepack(BaseModel):
     end_weight: Optional[float] = Field(default=1.0, title="End weight", description="Weight of the end image")
     vision_weight: Optional[float] = Field(default=1.0, title="Vision weight", description="Weight of the vision model")
     system_prompt: Optional[str] = Field(default=None, title="System prompt", description="System prompt for the model")
+    optimized_prompt: Optional[bool] = Field(default=True, title="Optimized system prompt", description="Use optimized system prompt for the model")
     section_prompt: Optional[str] = Field(default=None, title="Section prompt", description="Prompt for each section")
     negative_prompt: Optional[str] = Field(default=None, title="Negative prompt", description="Negative prompt for the model")
     styles: Optional[List[str]] = Field(default=None, title="Styles", description="Styles for the model")
@@ -86,6 +87,7 @@ def framepack_post(request: ReqFramepack):
         vision_weight=request.vision_weight,
         prompt=request.prompt,
         system_prompt=request.system_prompt,
+        optimized_prompt=request.optimized_prompt,
         section_prompt=request.section_prompt,
         negative_prompt=request.negative_prompt,
         styles=request.styles,

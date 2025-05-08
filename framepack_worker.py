@@ -99,7 +99,21 @@ def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_seco
     return latent_paddings
 
 
-def worker(input_image, end_image, start_weight, end_weight, vision_weight, prompts, n_prompt, system_prompt, seed, total_second_length, latent_window_size, steps, cfg_scale, cfg_distilled, cfg_rescale, shift, use_teacache, use_cfgzero, use_preview, mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate, vae_type, variant):
+def worker(
+        input_image, end_image,
+        start_weight, end_weight, vision_weight,
+        prompts, n_prompt, system_prompt, optimized_prompt, unmodified_prompt,
+        seed,
+        total_second_length,
+        latent_window_size,
+        steps,
+        cfg_scale, cfg_distilled, cfg_rescale,
+        shift,
+        use_teacache, use_cfgzero, use_preview,
+        mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
+        vae_type,
+        variant,
+    ):
     timer.process.reset()
     memstats.reset_stats()
     if stream is None or shared.state.interrupted or shared.state.skipped:
@@ -145,7 +159,7 @@ def worker(input_image, end_image, start_weight, end_weight, vision_weight, prom
         sd_models.apply_balanced_offload(shared.sd_model)
         sd_models.move_model(text_encoder, devices.device, force=True) # required as hunyuan.encode_prompt_conds checks device before calling model
         sd_models.move_model(text_encoder_2, devices.device, force=True)
-        framepack_hijack.set_prompt_template(prompt, system_prompt)
+        framepack_hijack.set_prompt_template(prompt, system_prompt, optimized_prompt, unmodified_prompt)
         llama_vec, clip_l_pooler = hunyuan.encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
         if cfg_scale > 1 and n_prompt is not None and len(n_prompt) > 0:
             llama_vec_n, clip_l_pooler_n = hunyuan.encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)

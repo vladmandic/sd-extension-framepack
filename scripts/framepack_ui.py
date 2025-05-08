@@ -72,6 +72,7 @@ def create_ui():
                         receipe_set = gr.Button(value="Set receipe", elem_id="framepack_btn_set_model", interactive=True)
                         receipe_reset = gr.Button(value="Reset receipe", elem_id="framepack_btn_reset_model", interactive=True)
                     use_teacache = gr.Checkbox(label='Enable TeaCache', value=True)
+                    optimized_prompt = gr.Checkbox(label='Use optimized system prompt', value=True)
                     use_cfgzero = gr.Checkbox(label='Enable CFGZero', value=False)
                     use_preview = gr.Checkbox(label='Enable Preview', value=True)
                     attention = gr.Dropdown(label="Attention", choices=['Default', 'Xformers', 'FlashAttention', 'SageAttention'], value='Default', type='value')
@@ -104,7 +105,7 @@ def create_ui():
                 inputs=[task_id,
                         input_image, end_image,
                         start_weight, end_weight, vision_weight,
-                        prompt, system_prompt, section_prompt, negative, styles,
+                        prompt, system_prompt, optimized_prompt, section_prompt, negative, styles,
                         seed,
                         resolution,
                         duration,
