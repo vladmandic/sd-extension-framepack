@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import random
 import threading
@@ -80,7 +81,8 @@ def interpolate_prompts(prompts, steps):
     if prompts is None:
         return interpolated_prompts
     if isinstance(prompts, str):
-        prompts = prompts.splitlines()
+        prompts = re.split(r'[,\n]', prompts)
+        prompts = [p.strip() for p in prompts]
     if len(prompts) == 0:
         return interpolated_prompts
     if len(prompts) == steps:

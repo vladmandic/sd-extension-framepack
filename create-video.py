@@ -61,6 +61,7 @@ def generate(args): # pylint: disable=redefined-outer-name
     request = {
         'variant': args.variant,
         'prompt': args.prompt,
+        'section_prompt': args.sections,
         'init_image': encode(args.init),
         'end_image': encode(args.end) if args.end else None,
         'resolution': int(args.resolution),
@@ -97,7 +98,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = 'api-framepack')
     parser.add_argument('--init', required=True, help='init image')
     parser.add_argument('--end', required=False, help='init image')
-    parser.add_argument('--prompt', required=True, default='', help='prompt text')
+    parser.add_argument('--prompt', required=False, default='', help='prompt text')
+    parser.add_argument('--sections', required=False, default='', help='per-section prompts')
     parser.add_argument('--resolution', type=int, required=False, default=640, help='video resolution')
     parser.add_argument('--duration', type=float, required=False, default=4.0, help='video duration')
     parser.add_argument('--fps', type=int, required=False, default=30, help='video frames per second')
