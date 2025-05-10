@@ -1,3 +1,4 @@
+/* Base styles */
 #framepack_actions_column { flex-flow: wrap; justify-content: space-between; gap: 0.3em; height: fit-content; }
 #framepack_generate_box { gap: 0.5em; flex-wrap: unset; min-width: unset; width: 100%; }
 #framepack_generate_box > button { max-width: unset; }
@@ -11,3 +12,14 @@
 #framepack_seed { min-width: 90px !important }
 #framepack_section_html { margin-left: 0.3em; color: var(--body-text-color-subdued); }
 #framepack_progress_desc { color: var(--body-text-color-subdued);}
+
+/* ModernUI */
+.portal #framepack_toprow { display: flex; flex-direction: column; direction: rtl; }
+.portal #framepack_generate_box { outline: none; }
+.portal #framepack_tools { outline: none; margin-top: auto; }
+.portal #framepack_generate_line2 { outline: none; margin-top: auto; }
+.portal #framepack_counters { display: none; }
+.portal #framepack_styles_row { flex-grow: 1; }
+.portal #framepack_prompt { display: block; }
+.portal #framepack_prompt_container > div { outline: none; }
+.portal #framepack_styles_row { direction: ltr; }
