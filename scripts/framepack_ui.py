@@ -1,9 +1,9 @@
 import gradio as gr
 from modules import script_callbacks, ui_sections, ui_common, generation_parameters_copypaste, ui_video_vlm
-import framepack_load
-import framepack_worker
-from framepack_wrappers import get_codecs, load_model, unload_model, run_framepack
-from framepack_api import create_api
+import framepack_load # pylint: disable=wrong-import-order
+import framepack_worker # pylint: disable=wrong-import-order
+from framepack_wrappers import get_codecs, load_model, unload_model, run_framepack # pylint: disable=wrong-import-order
+from framepack_api import create_api # pylint: disable=wrong-import-order
 
 
 def change_sections(duration, mp4_fps, mp4_interpolate, latent_ws, variant):

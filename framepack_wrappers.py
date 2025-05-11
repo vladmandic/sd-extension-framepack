@@ -7,10 +7,10 @@ import numpy as np
 import torch
 import gradio as gr
 from modules import shared, processing, timer, paths, extra_networks, progress, ui_video_vlm
-import framepack_install
-import framepack_load
-import framepack_worker
-import framepack_hijack
+import framepack_install # pylint: disable=wrong-import-order
+import framepack_load # pylint: disable=wrong-import-order
+import framepack_worker # pylint: disable=wrong-import-order
+import framepack_hijack # pylint: disable=wrong-import-order
 
 
 tmp_dir = os.path.join(paths.data_path, 'tmp', 'framepack')

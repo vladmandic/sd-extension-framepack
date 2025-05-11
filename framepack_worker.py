@@ -1,83 +1,13 @@
-import os
 import time
-import datetime
-import cv2
 import torch
-import torchvision
-import einops
 import rich.progress as rp
-from modules import shared, errors ,devices, sd_models, timer, memstats, rife
-import framepack_vae
-import framepack_hijack
+from modules import shared, errors ,devices, sd_models, timer, memstats
+import framepack_vae # pylint: disable=wrong-import-order
+import framepack_hijack # pylint: disable=wrong-import-order
+import framepack_video # pylint: disable=wrong-import-order
 
 
 stream = None # AsyncStream
-
-
-def save_video(pixels:torch.Tensor, mp4_fps:int=24, mp4_codec:str='libx264', mp4_opt:str='', mp4_ext:str='mp4', mp4_sf:bool=False, mp4_video:bool=True, mp4_frames:bool=False, mp4_interpolate:int=0):
-    if pixels is None:
-        return 0
-    t_save = time.time()
-    n, _c, t, h, w = pixels.shape
-    size = pixels.element_size() * pixels.numel()
-    shared.log.debug(f'FramePack video: video={mp4_video} export={mp4_frames} safetensors={mp4_sf} interpolate={mp4_interpolate}')
-    shared.log.debug(f'FramePack video: encode={t} raw={size} latent={pixels.shape} fps={mp4_fps} codec={mp4_codec} ext={mp4_ext} options="{mp4_opt}"')
-    try:
-        stream.output_queue.push(('progress', (None, 'Saving video...')))
-        if mp4_interpolate > 0:
-            x = pixels.squeeze(0).permute(1, 0, 2, 3)
-            interpolated = rife.interpolate_nchw(x, count=mp4_interpolate+1)
-            pixels = torch.stack(interpolated, dim=0)
-            pixels = pixels.permute(1, 2, 0, 3, 4)
-
-        n, _c, t, h, w = pixels.shape
-        x = torch.clamp(pixels.float(), -1., 1.) * 127.5 + 127.5
-        x = x.detach().cpu().to(torch.uint8)
-        x = einops.rearrange(x, '(m n) c t h w -> t (m h) (n w) c', n=n)
-        x = x.contiguous()
-
-        timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-        output_filename = os.path.join(shared.opts.outdir_video, f'{timestamp}-{mp4_codec}-f{t}')
-
-        if mp4_sf:
-            fn = f'{output_filename}.safetensors'
-            shared.log.info(f'FramePack export: file="{fn}" type=savetensors shape={x.shape}')
-            from safetensors.torch import save_file
-            shared.state.outputs(fn)
-            save_file({ 'frames': x }, fn, metadata={'format': 'video', 'frames': str(t), 'width': str(w), 'height': str(h), 'fps': str(mp4_fps), 'codec': mp4_codec, 'options': mp4_opt, 'ext': mp4_ext, 'interpolate': str(mp4_interpolate)})
-
-        if mp4_frames:
-            shared.log.info(f'FramePack frames: files="{output_filename}-00000.jpg" frames={t} width={w} height={h}')
-            for i in range(t):
-                image = cv2.cvtColor(x[i].numpy(), cv2.COLOR_RGB2BGR)
-                fn = f'{output_filename}-{i:05d}.jpg'
-                shared.state.outputs(fn)
-                cv2.imwrite(fn, image)
-
-        if mp4_video and (mp4_codec != 'none'):
-            fn = f'{output_filename}.{mp4_ext}'
-            options = {}
-            for option in [option.strip() for option in mp4_opt.split(',')]:
-                if '=' in option:
-                    key, value = option.split('=', 1)
-                elif ':' in option:
-                    key, value = option.split(':', 1)
-                else:
-                    continue
-                options[key.strip()] = value.strip()
-            shared.log.info(f'FramePack video: file="{fn}" raw={size} codec={mp4_codec} frames={t} width={w} height={h} fps={mp4_fps} options={options}')
-            shared.state.outputs(fn)
-            torchvision.io.write_video(fn, video_array=x, fps=mp4_fps, video_codec=mp4_codec, options=options)
-            stream.output_queue.push(('progress', (None, f'Video {os.path.basename(fn)} | Codec {mp4_codec} | Size {w}x{h}x{t} | FPS {mp4_fps}')))
-            stream.output_queue.push(('file', fn))
-        else:
-            stream.output_queue.push(('progress', (None, '')))
-
-    except Exception as e:
-        shared.log.error(f'FramePack video: raw={size} {e}')
-        errors.display(e, 'FramePack video')
-    timer.process.add('save', time.time()-t_save)
-    return t
 
 
 def get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length, variant):
@@ -113,6 +43,7 @@ def worker(
         mp4_fps, mp4_codec, mp4_sf, mp4_video, mp4_frames, mp4_opt, mp4_ext, mp4_interpolate,
         vae_type,
         variant,
+        metadata:dict={},
     ):
     timer.process.reset()
     memstats.reset_stats()
@@ -130,6 +61,9 @@ def worker(
     total_generated_latent_frames = 0
     latent_paddings = get_latent_paddings(mp4_fps, mp4_interpolate, latent_window_size, total_second_length, variant)
     num_frames = latent_window_size * 4 - 3 # number of frames to generate in each section
+
+    metadata['title'] = 'sdnext framepack'
+    metadata['description'] = f'variant:{variant} seed:{seed} steps:{steps} scale:{cfg_scale} distilled:{cfg_distilled} rescale:{cfg_rescale} shift:{shift} start:{start_weight} end:{end_weight} vision:{vision_weight}'
 
     shared.state.begin('Video')
     shared.state.job_count = 1
@@ -161,6 +95,7 @@ def worker(
         sd_models.move_model(text_encoder_2, devices.device, force=True)
         framepack_hijack.set_prompt_template(prompt, system_prompt, optimized_prompt, unmodified_prompt)
         llama_vec, clip_l_pooler = hunyuan.encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
+        metadata['comment'] = prompt
         if cfg_scale > 1 and n_prompt is not None and len(n_prompt) > 0:
             llama_vec_n, clip_l_pooler_n = hunyuan.encode_prompt_conds(n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2)
         else:
@@ -367,12 +302,13 @@ def worker(
 
                 if is_last_section:
                     break
-        total_generated_frames = save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_video, mp4_frames, mp4_interpolate)
+
+            total_generated_frames = framepack_video.save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_video, mp4_frames, mp4_interpolate, pbar=pbar, stream=stream, metadata=metadata)
 
     except AssertionError:
         shared.log.info('FramePack: interrupted')
         if shared.opts.keep_incomplete:
-            save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_video, mp4_frames, mp4_interpolate=0)
+            framepack_video.save_video(history_pixels, mp4_fps, mp4_codec, mp4_opt, mp4_ext, mp4_sf, mp4_video, mp4_frames, mp4_interpolate=0, stream=stream, metadata=metadata)
     except Exception as e:
         shared.log.error(f'FramePack: {e}')
         errors.display(e, 'FramePack')
