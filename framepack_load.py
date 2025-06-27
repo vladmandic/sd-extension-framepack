@@ -125,7 +125,7 @@ def load_model(variant:str=None, pipeline:str=None, text_encoder:str=None, text_
         t0 = time.time()
 
         shared.log.debug(f'FramePack load: module=llm {model["text_encoder"]}')
-        load_args, quant_args = model_quant.get_dit_args({}, module='LLM', device_map=True)
+        load_args, quant_args = model_quant.get_dit_args({}, module='TE', device_map=True)
         text_encoder = LlamaModel.from_pretrained(model["text_encoder"]["repo"], subfolder=model["text_encoder"]["subfolder"], cache_dir=shared.opts.hfcache_dir, **load_args, **quant_args)
         tokenizer = LlamaTokenizerFast.from_pretrained(model["tokenizer"]["repo"], subfolder=model["tokenizer"]["subfolder"], cache_dir=shared.opts.hfcache_dir)
         text_encoder.requires_grad_(False)
@@ -156,7 +156,7 @@ def load_model(variant:str=None, pipeline:str=None, text_encoder:str=None, text_
 
         shared.log.debug(f'FramePack load: module=transformer {model["transformer"]}')
         dit_repo = model["transformer"]["repo"]
-        load_args, quant_args = model_quant.get_dit_args({}, module='Video', device_map=True)
+        load_args, quant_args = model_quant.get_dit_args({}, module='Model', device_map=True)
         transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(dit_repo, subfolder=model["transformer"]["subfolder"], cache_dir=shared.opts.hfcache_dir, **load_args, **quant_args)
         transformer.high_quality_fp32_output_for_inference = False
         transformer.requires_grad_(False)
