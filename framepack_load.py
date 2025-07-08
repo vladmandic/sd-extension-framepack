@@ -177,7 +177,7 @@ def load_model(variant:str=None, pipeline:str=None, text_encoder:str=None, text_
         shared.sd_model.sd_checkpoint_info = sd_checkpoint.CheckpointInfo(dit_repo) # pylint: disable=attribute-defined-outside-init
         shared.sd_model.sd_model_checkpoint = dit_repo # pylint: disable=attribute-defined-outside-init
 
-        shared.sd_model = model_quant.do_post_load_quant(shared.sd_model)
+        shared.sd_model = model_quant.do_post_load_quant(shared.sd_model, allow=False)
         t1 = time.time()
 
         diffusers.loaders.peft._SET_ADAPTER_SCALE_FN_MAPPING['HunyuanVideoTransformer3DModelPacked'] = lambda model_cls, weights: weights # pylint: disable=protected-access
